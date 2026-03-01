@@ -3,11 +3,9 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Navbar from './components/Navbar';
 import Layout from './components/Layout';
-import Chatbot from './components/Chatbot';
 import Home from './components/Home';
 import Dashboard from './components/Dashboard';
 import SkillPrep from './components/SkillPrep';
-import InterviewPrep from './components/InterviewPrep';
 import MockInterview from './components/MockInterview';
 import AIAssistant from './components/AIAssistant';
 import Login from './components/auth/Login';
@@ -48,18 +46,6 @@ const PublicRoute = ({ children }) => {
 
   return authenticated ? <Navigate to="/" replace /> : children;
 };
-
-// Global Chatbot Component - shows on all authenticated pages
-const GlobalChatbot = () => {
-  const { authenticated } = useAuth();
-  
-  if (!authenticated) {
-    return null;
-  }
-  
-  return <Chatbot isSidebar={false} />;
-};
-
 
 function App() {
   return (

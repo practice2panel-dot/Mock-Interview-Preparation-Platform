@@ -275,15 +275,6 @@ def add_cors_headers(response):
     # Check if CORS headers already exist (from global CORS config)
     if 'Access-Control-Allow-Origin' not in response.headers:
         origin = request.headers.get('Origin', 'http://localhost:3000')
-        allowed_origins = [
-            'http://localhost:3000',
-            'http://127.0.0.1:3000',
-            'http://localhost:3001',
-            'http://127.0.0.1:3001',
-            'http://localhost:3002',
-            'http://127.0.0.1:3002'
-        ]
-        
         if origin.rstrip('/') in allowed_origins:
             response.headers['Access-Control-Allow-Origin'] = origin
         response.headers['Access-Control-Allow-Credentials'] = 'true'
@@ -300,15 +291,6 @@ app.register_blueprint(auth_bp)
 def handle_500_error(e):
     """Handle 500 errors with CORS headers"""
     origin = request.headers.get('Origin', 'http://localhost:3000')
-    allowed_origins = [
-        'http://localhost:3000',
-        'http://127.0.0.1:3000',
-        'http://localhost:3001',
-        'http://127.0.0.1:3001',
-        'http://localhost:3002',
-        'http://127.0.0.1:3002'
-    ]
-    
     # Safely encode error message
     try:
         error_msg = str(e)
@@ -326,7 +308,6 @@ def handle_500_error(e):
     response.headers['Access-Control-Allow-Credentials'] = 'true'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept, Origin'
-    
     return response, 500
 
 # Initialize users table on startup (database is optional for basic usage)

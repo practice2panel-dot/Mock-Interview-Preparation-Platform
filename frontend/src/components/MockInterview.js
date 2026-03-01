@@ -15,9 +15,6 @@ import {
   Phone,
   PhoneOff,
   Clock,
-  Star,
-  TrendingUp,
-  MessageSquare,
   Play
 } from 'lucide-react';
 import VapiSDK from '@vapi-ai/web';
@@ -48,7 +45,7 @@ const MockInterview = () => {
   const [activeSpeaker, setActiveSpeaker] = useState(null);
   const [currentRecruiterText, setCurrentRecruiterText] = useState('');
   const [currentCandidateText, setCurrentCandidateText] = useState('');
-  const [questionsAskedCount, setQuestionsAskedCount] = useState(0);
+  const [, setQuestionsAskedCount] = useState(0);
   const vapiRef = useRef(null);
   const vapiListenersRef = useRef([]);
   const speakerTimeoutRef = useRef({ recruiter: null, candidate: null });
@@ -543,9 +540,8 @@ CRITICAL INSTRUCTIONS - READ CAREFULLY:
         // Log config for debugging
         console.log('VAPI Call Config:', JSON.stringify(callConfig, null, 2));
         
-        let call;
         try {
-          call = await vapi.start(callConfig);
+          await vapi.start(callConfig);
         } catch (startError) {
           console.error('VAPI start error details:', startError);
           console.error('Error response:', startError?.response);
@@ -559,7 +555,7 @@ CRITICAL INSTRUCTIONS - READ CAREFULLY:
             console.log('Trying fallback: using full assistant config instead of assistantId');
             callConfig = { ...configData.assistant };
             try {
-              call = await vapi.start(callConfig);
+              await vapi.start(callConfig);
             } catch (fallbackError) {
               console.error('Fallback also failed:', fallbackError);
               throw new Error(`VAPI configuration error (400): ${errorMessage}. Please check your assistant configuration.`);

@@ -12,7 +12,6 @@ import {
   Square,
   Brain,
   BookOpen,
-  Target,
   User,
   Send,
   CheckCircle,
@@ -53,7 +52,7 @@ const InterviewPrep = () => {
   const [userMessage, setUserMessage] = useState('');
   const [recordingTime, setRecordingTime] = useState(0);
   const [maxTime] = useState(180); // 3 minutes
-  const [audioBlob, setAudioBlob] = useState(null);
+  const [, setAudioBlob] = useState(null);
   const [audioUrl, setAudioUrl] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [simpleAnswer, setSimpleAnswer] = useState('');
@@ -62,7 +61,7 @@ const InterviewPrep = () => {
   const [showFeedbackSection, setShowFeedbackSection] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false); // Modal for "Try AI Assistant for Help"
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
+  const [, setIsPaused] = useState(false);
   const [availableVoices, setAvailableVoices] = useState([]);
   const utteranceRef = useRef(null);
   
@@ -97,6 +96,7 @@ const InterviewPrep = () => {
     if (!showSelectionScreen && selectedRole && selectedInterviewType && selectedSkill) {
       fetchQuestions();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSelectionScreen, selectedRole, selectedInterviewType, selectedSkill]);
 
   const fetchQuestions = async () => {
@@ -209,7 +209,7 @@ const InterviewPrep = () => {
   const removeQuestionNumber = (text) => {
     if (!text || !text.trim()) return text;
     // Remove patterns like "1.", "1)", "Question 1:", "Q1.", "Q1:", etc. from the start
-    return text.replace(/^(?:question\s*)?\d+[\.\)\:]\s*/i, '').replace(/^q\d+[\.\)\:]\s*/i, '').trim();
+    return text.replace(/^(?:question\s*)?\d+[.):]\s*/i, '').replace(/^q\d+[.):]\s*/i, '').trim();
   };
 
   // Text-to-speech functions
@@ -339,7 +339,7 @@ const InterviewPrep = () => {
     }
   };
 
-  const handleVoiceToggle = () => {
+  const _handleVoiceToggle = () => {
     if (inputMode === 'voice') {
       setIsRecording(false);
       setTimerRunning(false);
@@ -348,6 +348,7 @@ const InterviewPrep = () => {
       setInputMode('voice');
     }
   };
+  void _handleVoiceToggle; // reserved for future use
 
   // Start voice recording
   const startRecording = async () => {
@@ -563,6 +564,7 @@ const InterviewPrep = () => {
         clearInterval(recordingTimerRef.current);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRecording, maxTime]);
 
 

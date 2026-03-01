@@ -43,12 +43,13 @@ const Chatbot = ({ currentQuestion, selectedSkill, selectedRole, interviewType, 
         content: `Hello! I'm your Interview Preparation Assistant. I'm specifically designed to help you prepare for interviews.\n\nI can assist you with:\n• Technical interview questions and concepts\n• Coding problems and algorithms\n• Behavioral interview tips and STAR method\n• Problem-solving strategies\n• Interview preparation advice\n• Resume and portfolio feedback\n\nPlease note: I focus exclusively on interview preparation topics. How can I help you prepare for your interview today?`
       }]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, askAssistantRequest]);
 
   // Auto scroll to bottom when new message arrives
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages.length]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
