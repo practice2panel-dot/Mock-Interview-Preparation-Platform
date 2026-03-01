@@ -1,0 +1,12 @@
+# Normalize line endings: checkout with CRLF on Windows, store as LF in repo
+* text=auto eol=lf
+
+# Binary files: do not change line endings
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
