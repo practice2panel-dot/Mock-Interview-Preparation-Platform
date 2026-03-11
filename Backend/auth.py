@@ -821,15 +821,18 @@ def safe_jsonify(data, status_code=200, add_cors=True):
                 origin = request.headers.get('Origin', 'http://localhost:3000')
             except:
                 origin = 'http://localhost:3000'
-            
-            allowed_origins = [
+
+            # Include production frontend URL from environment plus localhost variants
+            frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:3000').rstrip('/')
+            allowed_origins = {
+                frontend_url,
                 'http://localhost:3000',
                 'http://127.0.0.1:3000',
                 'http://localhost:3001',
                 'http://127.0.0.1:3001',
                 'http://localhost:3002',
-                'http://127.0.0.1:3002'
-            ]
+                'http://127.0.0.1:3002',
+            }
             if origin.rstrip('/') in allowed_origins:
                 response.headers['Access-Control-Allow-Origin'] = origin
             response.headers['Access-Control-Allow-Credentials'] = 'true'
