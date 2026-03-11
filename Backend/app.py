@@ -215,10 +215,20 @@ app.config['SESSION_PERMANENT'] = False
 app.config['SESSION_USE_SIGNER'] = True
 app.config['SESSION_KEY_PREFIX'] = 'practice2panel:'
 app.config['PERMANENT_SESSION_LIFETIME'] = 2592000  # 30 days in seconds
+
 # Session cookie settings for OAuth (important for state parameter)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Allows cookies in cross-site requests for OAuth
-app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'false').lower() == 'true'
+
+# For production (Render + Vercel: different domains, HTTPS), we must use
+# SameSite=None and Secure=True so cookies are sent on cross-site XHR.
+if is_production:
+    app.config['SESSION_COOKIE_SAMESITE'] = 'None'
+    app.config['SESSION_COOKIE_SECURE'] = True
+else:
+    # Local development: allow http and typical browser defaults
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['SESSION_COOKIE_SECURE'] = False
+
 app.config['SESSION_COOKIE_DOMAIN'] = None  # Don't restrict domain - allows localhost and 127.0.0.1
 app.config['SESSION_COOKIE_PATH'] = '/'  # Make sure cookies are available for all paths
 
