@@ -17,6 +17,8 @@ from email_service import (
     send_welcome_email,
     send_password_change_notification
 )
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+import secrets
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -997,9 +999,20 @@ def _google_authorize_impl():
         safe_print(f"[Google OAuth Authorize] Frontend URL: {frontend_origin}")
         safe_print(f"[Google OAuth Authorize] IMPORTANT: This redirect URI MUST be in Google Console: {redirect_uri}")
 
+        # Create a stateless, signed state token so the callback doesn't rely on
+        # cross-site cookies/sessions (common issue with Vercel <-> Render).
+        serializer = URLSafeTimedSerializer(
+            os.getenv("SECRET_KEY", "dev-secret-key"),
+            salt="google-oauth-state",
+        )
+        state_token = serializer.dumps(
+            {"nonce": secrets.token_urlsafe(16), "redirect_uri": redirect_uri}
+        )
+
         # Generate authorization URL with error handling
         try:
             authorization_url, state = flow.authorization_url(
+                state=state_token,
                 access_type='offline',
                 include_granted_scopes='true',
                 prompt='consent'
@@ -1034,20 +1047,9 @@ def _google_authorize_impl():
         else:
             safe_print(f"[Google OAuth Authorize] WARNING: redirect_uri not found in authorization URL!")
         
-        # Store state in session - make session permanent to prevent expiration during OAuth flow
-        # Store the EXACT redirect_uri that's in the authorization URL
-        session.permanent = True
-        session['oauth_state'] = state
-        session['oauth_redirect_uri'] = redirect_uri  # Store the actual redirect_uri from URL
-        safe_print(f"[Google OAuth Authorize] Stored redirect URI in session: '{redirect_uri}'")
-        
         # Debug logging
-        safe_print(f"[Google OAuth] State stored in session: {state[:20]}...")
-        safe_print(f"[Google OAuth] Session keys after storage: {list(session.keys())}")
+        safe_print(f"[Google OAuth] Using signed state token (prefix): {state[:20]}...")
         safe_print(f"[Google OAuth] Request origin: {request.headers.get('Origin')}")
-        
-        # Force session save
-        session.permanent = True
         
         # Add CORS headers to response - use safe_jsonify
         try:
@@ -1148,32 +1150,28 @@ def google_callback():
         if not authorization_code:
             return jsonify({'success': False, 'message': 'Authorization code missing'}), 400
         
-        # Verify state with better error handling
-        # Debug: Log request info
+        # Verify state without relying on session cookies (stateless signed token)
         safe_print_callback(f"[Google OAuth Callback] Received state: {state[:20] if state else 'None'}...")
-        safe_print_callback(f"[Google OAuth Callback] Request origin: {request.headers.get('Origin', 'None')}")
-        safe_print_callback(f"[Google OAuth Callback] Cookies in request: {list(request.cookies.keys())}")
-        
-        if 'oauth_state' not in session:
-            safe_print_callback(f"[Google OAuth] State not found in session. Session keys: {list(session.keys())}")
-            safe_print_callback(f"[Google OAuth] Request origin: {request.headers.get('Origin')}")
-            safe_print_callback(f"[Google OAuth] Request referer: {request.headers.get('Referer')}")
-            safe_print_callback(f"[Google OAuth] Cookies received: {list(request.cookies.keys())}")
-            safe_print_callback(f"[Google OAuth] Session ID: {session.get('_id', 'Not set')}")
+        serializer = URLSafeTimedSerializer(
+            os.getenv("SECRET_KEY", "dev-secret-key"),
+            salt="google-oauth-state",
+        )
+        try:
+            state_payload = serializer.loads(state, max_age=15 * 60)  # 15 minutes
+        except SignatureExpired:
             return jsonify({
-                'success': False, 
-                'message': 'Invalid state parameter: Session expired or cookies not set. Please try "Continue with Google" again.',
-                'debug': 'Session state not found. Make sure cookies are enabled and CORS is configured correctly.',
-                'hint': 'This usually happens when cookies are blocked or CORS is misconfigured. Check browser console for CORS errors.'
+                'success': False,
+                'message': 'Invalid state parameter: State expired. Please try "Continue with Google" again.',
             }), 400
-        
-        stored_state = session.get('oauth_state')
-        if stored_state != state:
-            safe_print_callback(f"[Google OAuth] State mismatch. Stored: {stored_state[:20] if stored_state else 'None'}..., Received: {state[:20] if state else 'None'}...")
+        except BadSignature:
             return jsonify({
-                'success': False, 
-                'message': 'Invalid state parameter: State mismatch. Please try "Continue with Google" again.',
-                'debug': 'State parameter does not match. This can happen if cookies are blocked or session expired.'
+                'success': False,
+                'message': 'Invalid state parameter: State invalid. Please try "Continue with Google" again.',
+            }), 400
+        except Exception:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid state parameter. Please try "Continue with Google" again.',
             }), 400
         
         # Google OAuth configuration
@@ -1186,22 +1184,18 @@ def google_callback():
             'http://127.0.0.1:3000'
         }
 
-        stored_redirect_uri = session.get('oauth_redirect_uri')
         request_origin = request.headers.get('Origin')
 
-        # CRITICAL: Use stored redirect URI from session - MUST match what was used in authorization request
-        # This is the redirect_uri that Google saw in the authorization URL
-        if stored_redirect_uri:
-            redirect_uri = stored_redirect_uri.rstrip('/')  # Remove any trailing slash
-            safe_print_callback(f"[Google OAuth Callback] Using stored redirect URI from session: {redirect_uri}")
+        # CRITICAL: Use redirect URI embedded in the signed state token (no session required)
+        redirect_uri = str(state_payload.get("redirect_uri", "")).rstrip("/")
+        if redirect_uri:
+            safe_print_callback(f"[Google OAuth Callback] Using redirect URI from state token: {redirect_uri}")
         elif request_origin and request_origin.rstrip('/') in allowed_frontend_origins:
-            redirect_uri = f"{request_origin.rstrip('/')}/auth/google/callback"
-            redirect_uri = redirect_uri.rstrip('/')
-            safe_print_callback(f"[Google OAuth Callback] WARNING: No stored redirect URI, using from request origin: {redirect_uri}")
+            redirect_uri = f"{request_origin.rstrip('/')}/auth/google/callback".rstrip("/")
+            safe_print_callback(f"[Google OAuth Callback] WARNING: No redirect in state, using from request origin: {redirect_uri}")
         else:
-            redirect_uri = f"{FRONTEND_URL.rstrip('/')}/auth/google/callback"
-            redirect_uri = redirect_uri.rstrip('/')
-            safe_print_callback(f"[Google OAuth Callback] WARNING: No stored redirect URI, using default: {redirect_uri}")
+            redirect_uri = f"{FRONTEND_URL.rstrip('/')}/auth/google/callback".rstrip("/")
+            safe_print_callback(f"[Google OAuth Callback] WARNING: No redirect in state, using default: {redirect_uri}")
 
         # Ensure no trailing slash (Google is strict about this)
         # Double check - remove any trailing slash
