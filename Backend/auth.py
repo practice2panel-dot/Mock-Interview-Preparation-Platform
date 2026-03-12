@@ -999,24 +999,50 @@ def _google_authorize_impl():
         safe_print(f"[Google OAuth Authorize] Frontend URL: {frontend_origin}")
         safe_print(f"[Google OAuth Authorize] IMPORTANT: This redirect URI MUST be in Google Console: {redirect_uri}")
 
-        # Create a stateless, signed state token so the callback doesn't rely on
-        # cross-site cookies/sessions (common issue with Vercel <-> Render).
-        serializer = URLSafeTimedSerializer(
-            os.getenv("SECRET_KEY", "dev-secret-key"),
-            salt="google-oauth-state",
-        )
-        state_token = serializer.dumps(
-            {"nonce": secrets.token_urlsafe(16), "redirect_uri": redirect_uri}
-        )
-
         # Generate authorization URL with error handling
         try:
+            # First call authorization_url so Flow can generate a PKCE code_verifier
+            # which Google now expects for some clients.
+            serializer = URLSafeTimedSerializer(
+                os.getenv("SECRET_KEY", "dev-secret-key"),
+                salt="google-oauth-state",
+            )
+            # Placeholder state; we'll override with signed token below
+            nonce = secrets.token_urlsafe(16)
+            unsigned_state = serializer.dumps({"nonce": nonce})
+
             authorization_url, state = flow.authorization_url(
-                state=state_token,
+                state=unsigned_state,
                 access_type='offline',
                 include_granted_scopes='true',
                 prompt='consent'
             )
+
+            # Now build the final signed state token including redirect_uri and PKCE code_verifier
+            code_verifier = getattr(flow, "code_verifier", None)
+            state_payload = {
+                "nonce": nonce,
+                "redirect_uri": redirect_uri,
+                "code_verifier": code_verifier,
+            }
+            state_token = serializer.dumps(state_payload)
+            # Replace state in authorization URL with our signed token
+            import urllib.parse
+            parsed = urllib.parse.urlparse(authorization_url)
+            params = urllib.parse.parse_qs(parsed.query)
+            params["state"] = [state_token]
+            new_query = urllib.parse.urlencode(params, doseq=True)
+            authorization_url = urllib.parse.urlunparse(
+                (
+                    parsed.scheme,
+                    parsed.netloc,
+                    parsed.path,
+                    parsed.params,
+                    new_query,
+                    parsed.fragment,
+                )
+            )
+            state = state_token
         except Exception as auth_url_error:
             error_msg = str(auth_url_error).encode('ascii', 'replace').decode('ascii')
             safe_print(f"[Google OAuth] Error generating authorization URL: {error_msg}")
@@ -1258,10 +1284,21 @@ def google_callback():
             safe_print_callback(f"[Google OAuth] State: {state[:20] if state else 'None'}...")
             safe_print_callback(f"[Google OAuth] Authorization response URL: {authorization_response}")
             safe_print_callback(f"[Google OAuth] Flow redirect_uri: {flow.redirect_uri}")
+            # Restore PKCE code_verifier from signed state, if present
+            code_verifier = state_payload.get("code_verifier")
+            if code_verifier:
+                safe_print_callback(f"[Google OAuth] Using PKCE code_verifier from state")
+                flow.code_verifier = code_verifier
             
-            # Fetch token using authorization_response URL
+            # Fetch token using authorization_response URL and PKCE verifier if available
             # The redirect_uri in the URL must match EXACTLY what's configured in Google Console
-            flow.fetch_token(authorization_response=authorization_response)
+            if code_verifier:
+                flow.fetch_token(
+                    authorization_response=authorization_response,
+                    code_verifier=code_verifier,
+                )
+            else:
+                flow.fetch_token(authorization_response=authorization_response)
             
             # Clear state from session after successful token exchange
             # This prevents code reuse if the request is made multiple times
