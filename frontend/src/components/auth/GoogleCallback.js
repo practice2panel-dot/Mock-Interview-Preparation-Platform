@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { API_BASE_URL } from '../../config';
@@ -8,8 +8,14 @@ const GoogleCallback = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
+  const hasProcessed = useRef(false);
 
   useEffect(() => {
+    // Guard against double-execution: the OAuth code is single-use, so we must
+    // never call the backend callback endpoint more than once per page load.
+    if (hasProcessed.current) return;
+    hasProcessed.current = true;
+
     const handleCallback = async () => {
       const code = searchParams.get('code');
       const state = searchParams.get('state');
@@ -26,7 +32,6 @@ const GoogleCallback = () => {
       }
 
       try {
-        // Send code to backend
         const response = await fetch(`${API_BASE_URL}/api/auth/google/callback`, {
           method: 'POST',
           headers: {
@@ -39,7 +44,6 @@ const GoogleCallback = () => {
         const data = await response.json();
 
         if (data.success) {
-          // Refresh auth state
           await checkAuth();
           navigate('/');
         } else {

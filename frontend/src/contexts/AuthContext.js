@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
 import { API_BASE_URL } from '../config';
 
 const AuthContext = createContext();
@@ -16,16 +16,11 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
 
-  // Check authentication status on mount
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/check`, {
         method: 'GET',
-        credentials: 'include', // Include cookies for session
+        credentials: 'include',
       });
 
       const data = await response.json();
@@ -44,7 +39,12 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Check authentication status on mount
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   const login = async (email, password, rememberMe = false) => {
     try {
