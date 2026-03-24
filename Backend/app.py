@@ -195,12 +195,20 @@ CRITICAL INSTRUCTIONS:
 # Configure Flask session
 secret_key = os.getenv('SECRET_KEY')
 is_debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+frontend_url_env = os.getenv('FRONTEND_URL', '').strip().rstrip('/')
+is_remote_frontend = (
+    frontend_url_env.startswith('https://')
+    and 'localhost' not in frontend_url_env
+    and '127.0.0.1' not in frontend_url_env
+)
 is_production = any(
-    env_val == 'production'
-    for env_val in (
-        os.getenv('FLASK_ENV', '').lower(),
-        os.getenv('ENV', '').lower(),
-        os.getenv('APP_ENV', '').lower(),
+    (
+        os.getenv('FLASK_ENV', '').lower() == 'production',
+        os.getenv('ENV', '').lower() == 'production',
+        os.getenv('APP_ENV', '').lower() == 'production',
+        os.getenv('RENDER', '').lower() == 'true',
+        bool(os.getenv('RENDER_SERVICE_ID')),
+        is_remote_frontend,
     )
 )
 if not secret_key:

@@ -28,14 +28,17 @@ export const AuthProvider = ({ children }) => {
       if (data.success && data.authenticated) {
         setUser(data.user);
         setAuthenticated(true);
+        return true;
       } else {
         setUser(null);
         setAuthenticated(false);
+        return false;
       }
     } catch (error) {
       console.error('Auth check failed:', error);
       setUser(null);
       setAuthenticated(false);
+      return false;
     } finally {
       setLoading(false);
     }

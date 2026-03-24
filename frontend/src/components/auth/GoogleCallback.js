@@ -61,13 +61,22 @@ const GoogleCallback = () => {
         const data = await response.json();
 
         if (data.success) {
-          await Promise.race([
+          const isAuthenticated = await Promise.race([
             checkAuth(),
             new Promise((_, reject) =>
               setTimeout(() => reject(new Error('Auth check timeout')), CHECK_AUTH_TIMEOUT_MS)
             ),
           ]);
-          navigate('/');
+
+          if (isAuthenticated) {
+            navigate('/');
+          } else {
+            navigate('/login', {
+              state: {
+                error: 'Google sign-in succeeded but session was not saved. Please allow third-party cookies and try again.',
+              },
+            });
+          }
         } else {
           navigate('/login', { state: { error: data.message || 'Google login failed' } });
         }
