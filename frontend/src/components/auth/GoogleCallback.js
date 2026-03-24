@@ -4,6 +4,23 @@ import { useAuth } from '../../contexts/AuthContext';
 import { API_BASE_URL } from '../../config';
 import './Auth.css';
 
+const CALLBACK_TIMEOUT_MS = 20000;
+const CHECK_AUTH_TIMEOUT_MS = 10000;
+
+const fetchWithTimeout = async (url, options = {}, timeoutMs = 15000) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
 const GoogleCallback = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -32,25 +49,37 @@ const GoogleCallback = () => {
       }
 
       try {
-        const response = await fetch(`${API_BASE_URL}/api/auth/google/callback`, {
+        const response = await fetchWithTimeout(`${API_BASE_URL}/api/auth/google/callback`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           credentials: 'include',
           body: JSON.stringify({ code, state }),
-        });
+        }, CALLBACK_TIMEOUT_MS);
 
         const data = await response.json();
 
         if (data.success) {
-          await checkAuth();
+          await Promise.race([
+            checkAuth(),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Auth check timeout')), CHECK_AUTH_TIMEOUT_MS)
+            ),
+          ]);
           navigate('/');
         } else {
           navigate('/login', { state: { error: data.message || 'Google login failed' } });
         }
       } catch (error) {
-        navigate('/login', { state: { error: 'Network error during Google login' } });
+        const isTimeout = error.name === 'AbortError' || error.message === 'Auth check timeout';
+        navigate('/login', {
+          state: {
+            error: isTimeout
+              ? 'Google login is taking too long. Please try again.'
+              : 'Network error during Google login',
+          },
+        });
       }
     };
 
