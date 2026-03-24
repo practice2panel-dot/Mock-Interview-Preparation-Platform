@@ -922,7 +922,7 @@
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .skill-prep .voice-practice-interface {
@@ -981,6 +981,26 @@
   font-size: 1.05rem;
   line-height: 1.65;
   color: #0f172a;
+}
+
+.question-voice-btn-inline {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #334155;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.question-voice-btn-inline:hover {
+  border-color: #2e86ab;
+  color: #1b4f72;
+  background: #f0f9ff;
 }
 
 .input-mode-toggle {
