@@ -1096,14 +1096,20 @@
   justify-content: center;
   gap: 0.75rem;
   width: 100%;
+  flex-wrap: nowrap;
 }
 
 .question-info {
-  width: auto;
+  flex: 1;
+  min-width: 0;
 }
 
 .question-info > div {
+  display: flex;
+  align-items: center;
   justify-content: center;
+  width: 100%;
+  flex-wrap: nowrap;
 }
 
 .question-number {
@@ -1404,6 +1410,7 @@
   }
 
   .question-info > div {
+    width: auto;
     flex-wrap: wrap;
     gap: 0.5rem !important;
   }
