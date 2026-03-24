@@ -929,6 +929,227 @@
   width: 100%;
 }
 
+.voice-interview-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.question-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.question-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.question-info {
+  width: 100%;
+}
+
+.question-number {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.question-text-container {
+  padding: 1rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.question-text {
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: #0f172a;
+}
+
+.input-mode-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.mode-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #334155;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mode-button:hover {
+  border-color: #2e86ab;
+  color: #1b4f72;
+  background: #f0f9ff;
+}
+
+.mode-button.active {
+  border-color: #2e86ab;
+  background: linear-gradient(135deg, #2e86ab, #1b4f72);
+  color: #ffffff;
+  box-shadow: 0 6px 14px rgba(46, 134, 171, 0.25);
+}
+
+.voice-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.voice-button {
+  width: 64px;
+  height: 64px;
+  border: none;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  background: linear-gradient(135deg, #2e86ab, #1b4f72);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.voice-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(46, 134, 171, 0.35);
+}
+
+.voice-button.recording {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  box-shadow: 0 10px 22px rgba(239, 68, 68, 0.35);
+}
+
+.play-button {
+  width: 42px;
+  height: 42px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #0f172a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.processing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #475569;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.text-input-section {
+  position: relative;
+  margin-top: 0.25rem;
+}
+
+.text-answer-input {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 0.85rem 3.1rem 0.85rem 0.9rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #0f172a;
+  background: #ffffff;
+}
+
+.text-answer-input:focus {
+  outline: none;
+  border-color: #2e86ab;
+  box-shadow: 0 0 0 3px rgba(46, 134, 171, 0.18);
+}
+
+.send-btn {
+  position: absolute;
+  right: 0.65rem;
+  bottom: 0.65rem;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  background: #2e86ab;
+  cursor: pointer;
+}
+
+.send-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.recording-status {
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+}
+
+.status-recording,
+.status-complete {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.status-recording {
+  color: #b91c1c;
+}
+
+.status-complete {
+  color: #166534;
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: pulse-dot 1s infinite;
+}
+
+@keyframes pulse-dot {
+  0% { transform: scale(0.9); opacity: 1; }
+  70% { transform: scale(1.5); opacity: 0.3; }
+  100% { transform: scale(0.9); opacity: 1; }
+}
+
 .chatbot-sidebar {
   position: sticky;
   top: 6rem;
