@@ -1,6 +1,9 @@
 import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
 import { API_BASE_URL } from '../config';
 
+/** Abort auth check if the backend is unreachable (wrong URL, sleeping host, hung proxy). */
+const AUTH_CHECK_TIMEOUT_MS = 20000;
+
 const AuthContext = createContext();
 
 export const useAuth = () => {
@@ -17,29 +20,46 @@ export const AuthProvider = ({ children }) => {
   const [authenticated, setAuthenticated] = useState(false);
 
   const checkAuth = useCallback(async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), AUTH_CHECK_TIMEOUT_MS);
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/check`, {
         method: 'GET',
         credentials: 'include',
+        signal: controller.signal,
       });
 
-      const data = await response.json();
-      
+      let data = {};
+      try {
+        data = await response.json();
+      } catch {
+        /* HTML error page or empty body */
+      }
+
       if (data.success && data.authenticated) {
         setUser(data.user);
         setAuthenticated(true);
         return true;
-      } else {
-        setUser(null);
-        setAuthenticated(false);
-        return false;
       }
+
+      setUser(null);
+      setAuthenticated(false);
+      return false;
     } catch (error) {
-      console.error('Auth check failed:', error);
+      if (error.name === 'AbortError') {
+        console.error(
+          'Auth check timed out. Are REACT_APP_API_URL (Vercel) and the backend (e.g. Render) up?',
+          API_BASE_URL
+        );
+      } else {
+        console.error('Auth check failed:', error);
+      }
       setUser(null);
       setAuthenticated(false);
       return false;
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   }, []);

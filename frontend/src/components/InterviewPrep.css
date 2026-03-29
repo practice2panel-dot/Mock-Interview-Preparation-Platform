@@ -210,13 +210,13 @@
   align-items: center;
   gap: 1rem;
   padding: 2rem;
-  border: 2px solid var(--border-color);
+  border: 2px solid var(--role-color, var(--border-color));
   border-radius: 1.25rem;
-  background: var(--bg-primary);
+  background: #f8f9fa;
   cursor: pointer;
   transition: all 0.3s ease;
   text-align: left;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   position: relative;
   overflow: hidden;
 }
@@ -235,7 +235,7 @@
 }
 
 .role-option:hover {
-  border-color: var(--accent-color);
+  border-color: var(--role-color, var(--accent-color));
   transform: translateY(-4px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
@@ -245,7 +245,7 @@
 }
 
 .role-option.selected {
-  border-color: var(--accent-color);
+  border-color: var(--role-color, var(--accent-color));
   background: rgba(46, 134, 171, 0.1);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   transform: translateY(-2px);
@@ -253,90 +253,6 @@
 
 .role-option.selected::before {
   opacity: 0.1;
-}
-
-/* Data Scientist - Deep Navy Theme */
-.role-option:nth-child(1) {
-  background: #F8F9FA;
-  border: 2px solid #0A2540;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.role-option:nth-child(1):hover {
-  border-color: #1B4F72;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  background: #F1F5F9;
-}
-
-.role-option:nth-child(1) span {
-  color: #0A2540;
-}
-
-.role-option:nth-child(1):hover span {
-  color: #1B4F72;
-}
-
-/* Software Engineer - Steel Blue Theme */
-.role-option:nth-child(2) {
-  background: #F8F9FA;
-  border: 2px solid #1B4F72;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.role-option:nth-child(2):hover {
-  border-color: #2E86AB;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  background: #F1F5F9;
-}
-
-.role-option:nth-child(2) span {
-  color: #1B4F72;
-}
-
-.role-option:nth-child(2):hover span {
-  color: #2E86AB;
-}
-
-/* DevOps Engineer - Bright Blue Theme */
-.role-option:nth-child(3) {
-  background: #F8F9FA;
-  border: 2px solid #2E86AB;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.role-option:nth-child(3):hover {
-  border-color: #1B4F72;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  background: #F1F5F9;
-}
-
-.role-option:nth-child(3) span {
-  color: #2E86AB;
-}
-
-.role-option:nth-child(3):hover span {
-  color: #1B4F72;
-}
-
-/* Product Manager - Deep Navy Theme */
-.role-option:nth-child(4) {
-  background: #F8F9FA;
-  border: 2px solid #0A2540;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.role-option:nth-child(4):hover {
-  border-color: #1B4F72;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  background: #F1F5F9;
-}
-
-.role-option:nth-child(4) span {
-  color: #0A2540;
-}
-
-.role-option:nth-child(4):hover span {
-  color: #1B4F72;
 }
 
 .role-color-indicator {
@@ -359,6 +275,7 @@
 .role-option span {
   font-weight: 700;
   font-size: 1.1rem;
+  color: var(--role-color, var(--text-primary));
   z-index: 1;
   position: relative;
   transition: all 0.3s ease;
