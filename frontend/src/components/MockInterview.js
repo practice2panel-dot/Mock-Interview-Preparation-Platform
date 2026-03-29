@@ -213,7 +213,10 @@ const MockInterview = () => {
     try {
       setIsLoading(true);
       setError('');
-      
+
+      const roleConfig = jobRoles[selectedRole];
+      const skillsForRole = roleConfig?.skills ?? [];
+
       const response = await fetch(`${API_BASE_URL}/api/mock-interview/questions`, {
         method: 'POST',
         headers: {
@@ -221,22 +224,30 @@ const MockInterview = () => {
         },
         body: JSON.stringify({
           job_role: selectedRole,
-          interview_type: selectedInterviewType
+          interview_type: selectedInterviewType,
+          // Same skill labels as Skill Prep → same DB tables ({type}_python, etc.)
+          skills: skillsForRole
         })
       });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch questions');
+
+      let data = {};
+      try {
+        data = await response.json();
+      } catch (_) {
+        /* non-JSON response */
       }
-      
-      const data = await response.json();
-      
-      if (data.success && data.questions) {
-        return { ok: true, questions: data.questions };
-      } else {
-        setError(data.message || 'No questions available');
+
+      if (!response.ok) {
+        setError(data.message || `Failed to fetch questions (${response.status})`);
         return { ok: false, questions: [] };
       }
+
+      if (data.success && Array.isArray(data.questions) && data.questions.length > 0) {
+        return { ok: true, questions: data.questions };
+      }
+
+      setError(data.message || 'No questions available for this role and interview type.');
+      return { ok: false, questions: [] };
     } catch (error) {
       console.error('Error fetching questions:', error);
       setError('Failed to load questions. Please try again.');

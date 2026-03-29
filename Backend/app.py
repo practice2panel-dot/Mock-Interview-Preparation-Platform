@@ -57,6 +57,25 @@ PLATFORM_SKILLS = {
     'Backend Engineer (AI/ML Focused)': ['Python', 'SQL', 'AWS', 'Docker', 'Machine Learning'],
 }
 
+
+def resolve_mock_interview_skills(job_role, client_skills=None):
+    """
+    Skills used to resolve DB tables like {interview_type}_python.
+
+    If job_role is in PLATFORM_SKILLS, the server list is authoritative (same as Skill Prep
+    when that role exists on the server).
+
+    If the role is missing on the server (stale deploy) but the frontend sends `skills`,
+    use that list so question loading matches /api/questions/<type>/<skill> behavior.
+    """
+    if job_role in PLATFORM_SKILLS:
+        return list(PLATFORM_SKILLS[job_role])
+    if isinstance(client_skills, list) and client_skills:
+        cleaned = [str(s).strip() for s in client_skills if str(s).strip()]
+        return cleaned if cleaned else None
+    return None
+
+
 # Interview Type Configuration - Using relaxed rubrics from Rubrics.docx for all types
 # Rubrics are now loaded dynamically from the docx file
 INTERVIEW_TYPE_CONFIG = {
@@ -739,13 +758,17 @@ def get_mock_interview_questions():
                 'message': 'Job role is required'
             }), 400
         
-        if job_role not in PLATFORM_SKILLS:
+        client_skills = data.get('skills')
+        skills = resolve_mock_interview_skills(job_role, client_skills)
+        if not skills:
             return jsonify({
                 'success': False,
-                'message': f'Job role "{job_role}" not found'
+                'message': (
+                    f'Job role "{job_role}" is not recognized on the server and no valid skills '
+                    f'list was sent. Update the backend or ensure the client sends a skills array.'
+                )
             }), 400
         
-        skills = PLATFORM_SKILLS[job_role]
         all_questions = []
         questions_per_skill = 3
         min_questions = 15  # Target 15 questions total
@@ -1736,14 +1759,15 @@ def vapi_webhook():
                 asked_questions = parameters.get('asked_questions', [])
                 
                 # Fetch questions
-                if job_role not in PLATFORM_SKILLS:
+                skills_list = resolve_mock_interview_skills(job_role, parameters.get('skills'))
+                if not skills_list:
                     return jsonify({
                         'result': 'No more questions available'
                     })
                 
                 # Get all available questions
                 all_questions = []
-                for skill in PLATFORM_SKILLS[job_role]:
+                for skill in skills_list:
                     # Get table name based on interview type (dictionary-based, no if-else)
                     table_name = get_question_table_name(interview_type, skill)
                     questions, error = get_questions_from_table(table_name)
