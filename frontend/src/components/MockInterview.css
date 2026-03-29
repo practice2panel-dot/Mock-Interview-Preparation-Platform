@@ -1188,18 +1188,92 @@
 @media (max-width: 768px) {
   .mock-interview {
     padding: 1rem;
+    min-height: 100dvh;
+    height: auto;
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    box-sizing: border-box;
+  }
+
+  .mock-interview-container {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
   }
 
   .mock-interview-header .section-title {
-    font-size: 2rem;
+    font-size: 1.75rem;
+  }
+
+  .mock-interview-header .section-subtitle {
+    font-size: 0.95rem;
+    padding: 0 0.25rem;
+  }
+
+  .mock-interview-form {
+    padding: 1.25rem;
+    border-radius: 12px;
+  }
+
+  .form-step h3 {
+    font-size: 1.25rem;
+  }
+
+  .form-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .form-actions .form-button {
+    width: 100%;
+    min-height: 48px;
+  }
+
+  .error-message {
+    flex-wrap: wrap;
+    font-size: 0.9rem;
   }
 
   .feedback-header .section-title {
-    font-size: 1.75rem;
+    font-size: 1.5rem;
+  }
+
+  .feedback-container {
+    padding: 1rem;
+    min-height: auto;
   }
 
   .feedback-content {
     padding: 1rem;
+    max-height: none;
+  }
+
+  .feedback-strengths-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .report-info-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+
+  .report-info-label {
+    min-width: unset;
+  }
+
+  .report-title {
+    font-size: 1.35rem;
+  }
+
+  .score-value {
+    font-size: 2.75rem;
+  }
+
+  .report-section-title {
+    font-size: 1.35rem;
   }
 
   .interview-header {
@@ -1210,6 +1284,134 @@
 
   .conversation-message {
     max-width: 90%;
+  }
+
+  /* Active interview — stack panels, fit small viewports */
+  .interview-active {
+    height: auto;
+    min-height: 100dvh;
+    max-height: none;
+    padding: 0.75rem;
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+    justify-content: flex-start;
+    gap: 0.75rem;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .interview-session-header {
+    flex-direction: column;
+    align-items: center;
+    padding: 0.35rem 0 0.25rem;
+    gap: 0.35rem;
+  }
+
+  .session-title {
+    font-size: 1.15rem;
+    line-height: 1.3;
+    padding: 0 0.5rem;
+  }
+
+  .session-timer {
+    position: static;
+    transform: none;
+    font-size: 0.95rem;
+  }
+
+  .interview-panels {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+    max-width: 100%;
+    align-items: stretch;
+  }
+
+  .interview-panel {
+    min-height: 0;
+    aspect-ratio: auto;
+    padding: 1.25rem 1rem;
+    border-radius: 10px;
+  }
+
+  .interview-panel.speaking {
+    transform: none;
+  }
+
+  .panel-avatar {
+    width: 88px;
+    height: 88px;
+    margin-bottom: 1rem;
+  }
+
+  .candidate-initial {
+    font-size: 2.25rem;
+  }
+
+  .panel-avatar svg {
+    width: 40px;
+    height: 40px;
+  }
+
+  .panel-label {
+    font-size: 1rem;
+    text-align: center;
+    word-break: break-word;
+    max-width: 100%;
+  }
+
+  .call-controls {
+    gap: 1.25rem;
+    padding: 0.5rem 0 0.75rem;
+  }
+
+  .control-button {
+    width: 52px;
+    height: 52px;
+    min-width: 52px;
+    min-height: 52px;
+  }
+
+  .interview-status {
+    font-size: 0.8rem;
+    padding-bottom: 0.25rem;
+  }
+
+  .loading-container {
+    padding: 2rem 1rem;
+    min-height: 50dvh;
+  }
+
+  .feedback-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .feedback-actions .form-button {
+    width: 100%;
+    min-height: 48px;
+  }
+
+  .feedback-header-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .feedback-header-actions .form-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 380px) {
+  .session-title {
+    font-size: 1.05rem;
+  }
+
+  .panel-avatar {
+    width: 72px;
+    height: 72px;
+  }
+
+  .mock-interview-header .section-title {
+    font-size: 1.5rem;
   }
 }
 

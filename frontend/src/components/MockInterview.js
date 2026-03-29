@@ -1432,7 +1432,10 @@ CRITICAL INSTRUCTIONS - READ CAREFULLY:
                     </div>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+                  <div
+                    className="feedback-strengths-grid"
+                    style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}
+                  >
                     {/* Strengths Section */}
                     {feedbackData.feedback_data.key_strengths && feedbackData.feedback_data.key_strengths.length > 0 ? (
                       <div className="feedback-section" style={{
