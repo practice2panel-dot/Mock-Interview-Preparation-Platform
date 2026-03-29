@@ -271,28 +271,40 @@ Session(app)
 # Enable CORS for frontend communication with credentials support
 # IMPORTANT: Cannot use "*" with supports_credentials=True - must specify exact origins
 # FRONTEND_URL + optional CORS_ORIGINS — see cors_config.py
-from cors_config import get_allowed_origins
+from cors_config import get_allowed_origins, is_origin_allowed, get_vercel_origin_pattern
 
 allowed_origins = get_allowed_origins()
+vercel_origin_pattern = get_vercel_origin_pattern()
+
+
+def _flask_cors_origins():
+    """Exact URLs from env plus optional Vercel preview regex (see cors_config)."""
+    out = list(allowed_origins)
+    if vercel_origin_pattern:
+        out.append(vercel_origin_pattern)
+    return out
+
 
 # Apply CORS globally to all routes (more reliable than resource-specific)
 CORS(app, 
      supports_credentials=True, 
-     origins=allowed_origins,
+     origins=_flask_cors_origins(),
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-     allow_headers=["Content-Type", "Authorization", "Accept", "Origin"],
+     allow_headers=["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"],
      expose_headers=["Set-Cookie"])
 
 # Helper function for CORS OPTIONS responses
 def create_cors_options_response(methods="GET, POST, PUT, DELETE, OPTIONS"):
     """Create a standardized CORS OPTIONS response."""
-    origin = request.headers.get('Origin', 'http://localhost:3000')
-    # Validate origin
-    if origin.rstrip('/') not in allowed_origins:
-        origin = 'http://localhost:3000'
+    origin = request.headers.get('Origin')
+    if not origin or not is_origin_allowed(origin, allowed_origins, vercel_origin_pattern):
+        return jsonify({'success': False, 'message': 'CORS origin not allowed'}), 403
+    # Echo the browser's Origin header exactly as sent (required for credentialed CORS).
     response = jsonify({'success': True})
     response.headers['Access-Control-Allow-Origin'] = origin
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept, Origin'
+    response.headers['Access-Control-Allow-Headers'] = (
+        'Content-Type, Authorization, Accept, Origin, X-Requested-With'
+    )
     response.headers['Access-Control-Allow-Methods'] = methods
     response.headers['Access-Control-Allow-Credentials'] = 'true'
     response.headers['Access-Control-Max-Age'] = '3600'
@@ -311,13 +323,15 @@ def add_cors_headers(response):
     """Add CORS headers to all responses if not already present"""
     # Check if CORS headers already exist (from global CORS config)
     if 'Access-Control-Allow-Origin' not in response.headers:
-        origin = request.headers.get('Origin', 'http://localhost:3000')
-        if origin.rstrip('/') in allowed_origins:
+        origin = request.headers.get('Origin')
+        if origin and is_origin_allowed(origin, allowed_origins, vercel_origin_pattern):
             response.headers['Access-Control-Allow-Origin'] = origin
         response.headers['Access-Control-Allow-Credentials'] = 'true'
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept, Origin'
-    
+        response.headers['Access-Control-Allow-Headers'] = (
+            'Content-Type, Authorization, Accept, Origin, X-Requested-With'
+        )
+
     return response
 
 # Register auth blueprint
@@ -327,7 +341,6 @@ app.register_blueprint(auth_bp)
 @app.errorhandler(500)
 def handle_500_error(e):
     """Handle 500 errors with CORS headers"""
-    origin = request.headers.get('Origin', 'http://localhost:3000')
     # Safely encode error message
     try:
         error_msg = str(e)
@@ -340,11 +353,14 @@ def handle_500_error(e):
         'message': f'Server error: {error_msg}'
     })
     
-    if origin.rstrip('/') in allowed_origins:
+    origin = request.headers.get('Origin')
+    if origin and is_origin_allowed(origin, allowed_origins, vercel_origin_pattern):
         response.headers['Access-Control-Allow-Origin'] = origin
     response.headers['Access-Control-Allow-Credentials'] = 'true'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept, Origin'
+    response.headers['Access-Control-Allow-Headers'] = (
+        'Content-Type, Authorization, Accept, Origin, X-Requested-With'
+    )
     return response, 500
 
 # Initialize users table on startup (database is optional for basic usage)

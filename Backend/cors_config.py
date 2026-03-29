@@ -8,6 +8,51 @@ Configure production via environment variables:
 Local dev defaults include localhost:3000 unless overridden.
 """
 import os
+import re
+
+
+def normalize_origin(origin):
+    """Compare origins case-insensitively (scheme/host are case-insensitive per RFC)."""
+    if not origin:
+        return ""
+    return origin.strip().rstrip("/").lower()
+
+
+def get_vercel_origin_pattern():
+    """
+    If FRONTEND_URL is a *.vercel.app URL, return a regex that also matches
+    Vercel preview hostnames (same project slug prefix, e.g. ...-git-branch-...).
+    """
+    fu = (os.getenv("FRONTEND_URL") or "").strip().rstrip("/")
+    if ".vercel.app" not in fu.lower():
+        return None
+    try:
+        host = fu.split("//", 1)[-1].split("/")[0].lower()
+        if not host.endswith(".vercel.app"):
+            return None
+        slug = host[: -len(".vercel.app")]
+        if not slug:
+            return None
+        return re.compile(
+            r"^https://" + re.escape(slug) + r"([a-z0-9.-]+)?\.vercel\.app$",
+            re.IGNORECASE,
+        )
+    except Exception:
+        return None
+
+
+def is_origin_allowed(request_origin, allowed_list, vercel_pattern=None):
+    """True if origin is in allowed_list (case-insensitive) or matches vercel_pattern."""
+    if not request_origin:
+        return False
+    ro = request_origin.strip()
+    req_norm = normalize_origin(ro)
+    for o in allowed_list or []:
+        if normalize_origin(o) == req_norm:
+            return True
+    if vercel_pattern is not None and vercel_pattern.match(ro):
+        return True
+    return False
 
 
 def get_allowed_origins():
