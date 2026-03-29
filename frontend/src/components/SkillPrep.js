@@ -32,6 +32,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import './SkillPrep.css';
 import { API_BASE_URL } from '../config';
+import { jobRoles } from '../jobRolesConfig';
 
 const SkillPrep = () => {
   const navigate = useNavigate();
@@ -291,21 +292,6 @@ const SkillPrep = () => {
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
   const audioRef = useRef(null);
-
-  const jobRoles = {
-    'AI Engineer': {
-      skills: ['Machine Learning', 'Python', 'TensorFlow', 'PyTorch', 'Deep Learning'],
-      color: 'var(--primary-color)'
-    },
-    'Data Scientist': {
-      skills: ['Python', 'Machine Learning', 'SQL', 'Data Analysis', 'Statistics'],
-      color: 'var(--accent-color)'
-    },
-    'Python Developer': {
-      skills: ['Python', 'AWS', 'Kubernetes', 'Docker', 'Lambda'],
-      color: 'var(--secondary-color)'
-    }
-  };
 
   const difficulties = [
     { value: 'easy', label: 'Easy', color: 'var(--accent-color)' },
