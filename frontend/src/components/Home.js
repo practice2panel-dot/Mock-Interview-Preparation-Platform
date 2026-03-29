@@ -10,6 +10,7 @@ import {
   ArrowRight,
   CheckCircle
 } from 'lucide-react';
+import { jobRolesForHome } from '../jobRolesConfig';
 import './Home.css';
 
 const Home = () => {
@@ -50,23 +51,7 @@ const Home = () => {
     }
   ];
 
-  const jobRoles = [
-    {
-      title: 'AI Engineer',
-      skills: ['Machine Learning', 'Python', 'TensorFlow', 'PyTorch', 'Deep Learning'],
-      color: '#0A2540'
-    },
-    {
-      title: 'Data Scientist',
-      skills: ['Python', 'Machine Learning', 'SQL', 'Data Analysis', 'Statistics'],
-      color: '#1B4F72'
-    },
-    {
-      title: 'Python Developer',
-      skills: ['Python', 'AWS', 'Kubernetes', 'Docker', 'Lambda'],
-      color: '#2E86AB'
-    }
-  ];
+  const jobRoles = jobRolesForHome;
 
   return (
     <div className="home">

@@ -30,6 +30,7 @@ import {
 import './InterviewPrep.css';
 import './InterviewPrepLayout.css';
 import { API_BASE_URL } from '../config';
+import { jobRoles } from '../jobRolesConfig';
 
 const InterviewPrep = () => {
   // Selection screen state
@@ -70,22 +71,6 @@ const InterviewPrep = () => {
   const audioChunksRef = useRef([]);
   const recordingTimerRef = useRef(null);
   const audioRef = useRef(null);
-
-  // Job roles with their skills
-  const jobRoles = {
-    'AI Engineer': {
-      skills: ['Machine Learning', 'Python', 'TensorFlow', 'PyTorch', 'Deep Learning'],
-      color: 'var(--primary-color)'
-    },
-    'Data Scientist': {
-      skills: ['Python', 'Machine Learning', 'SQL', 'Data Analysis', 'Statistics'],
-      color: 'var(--accent-color)'
-    },
-    'Python Developer': {
-      skills: ['Python', 'AWS', 'Kubernetes', 'Docker', 'Lambda'],
-      color: 'var(--secondary-color)'
-    }
-  };
 
   // Questions state
   const [questions, setQuestions] = useState([]);

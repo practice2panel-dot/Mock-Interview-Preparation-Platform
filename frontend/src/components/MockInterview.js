@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import VapiSDK from '@vapi-ai/web';
 import { API_BASE_URL } from '../config';
+import { jobRoles } from '../jobRolesConfig';
 import './MockInterview.css';
 
 const MockInterview = () => {
@@ -33,7 +34,6 @@ const MockInterview = () => {
   // Interview state
   const [isInterviewActive, setIsInterviewActive] = useState(false);
   const [isCallActive, setIsCallActive] = useState(false);
-  const [questions, setQuestions] = useState([]);
   const [conversationHistory, setConversationHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -199,22 +199,6 @@ const MockInterview = () => {
     return { statusCode, message: specific };
   };
 
-  // Job roles with their skills
-  const jobRoles = {
-    'AI Engineer': {
-      skills: ['Machine Learning', 'Python', 'TensorFlow', 'PyTorch', 'Deep Learning'],
-      color: 'var(--primary-color)'
-    },
-    'Data Scientist': {
-      skills: ['Python', 'Machine Learning', 'SQL', 'Data Analysis', 'Statistics'],
-      color: 'var(--accent-color)'
-    },
-    'Python Developer': {
-      skills: ['Python', 'AWS', 'Kubernetes', 'Docker', 'Lambda'],
-      color: 'var(--secondary-color)'
-    }
-  };
-
   // Interview types
   const interviewTypes = [
     { value: 'technical', label: 'Technical Interview', icon: <Brain size={20} /> },
@@ -224,7 +208,7 @@ const MockInterview = () => {
 
 
   // Fetch questions for all skills. Returns questions in the same tick so callers can
-  // build prompts without relying on async setQuestions (which would still be stale).
+  // build prompts without relying on React state that would still be stale until re-render.
   const fetchQuestions = async () => {
     try {
       setIsLoading(true);
@@ -248,7 +232,6 @@ const MockInterview = () => {
       const data = await response.json();
       
       if (data.success && data.questions) {
-        setQuestions(data.questions);
         return { ok: true, questions: data.questions };
       } else {
         setError(data.message || 'No questions available');
@@ -1136,7 +1119,6 @@ CRITICAL INSTRUCTIONS - READ CAREFULLY:
     setCurrentStep('name');
     setIsInterviewActive(false);
     setIsCallActive(false);
-    setQuestions([]);
     setConversationHistory([]);
     conversationHistoryRef.current = [];
     transcriptAccumulatorRef.current = { assistant: '', user: '' };
@@ -1168,7 +1150,6 @@ CRITICAL INSTRUCTIONS - READ CAREFULLY:
     conversationHistoryRef.current = [];
     transcriptAccumulatorRef.current = { assistant: '', user: '' };
     lastStoredMessageRef.current = { assistant: '', user: '' };
-    setQuestions([]);
     setQuestionsAskedCount(0);
     setInterviewTimer(0);
     setIsInterviewActive(false);

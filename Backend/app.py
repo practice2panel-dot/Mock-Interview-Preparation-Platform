@@ -44,11 +44,17 @@ def execute_db_query(query, params=None, fetch_one=False, fetch_all=False):
 app = Flask(__name__)
 load_dotenv()
 
-# Platform skills (sync with frontend options)
+# Platform skills (sync with frontend/src/jobRolesConfig.js)
 PLATFORM_SKILLS = {
     'AI Engineer': ['Machine Learning', 'Python', 'TensorFlow', 'PyTorch', 'Deep Learning'],
     'Data Scientist': ['Python', 'Machine Learning', 'SQL', 'Data Analysis', 'Statistics'],
-    'Python Developer': ['Python', 'AWS', 'Kubernetes', 'Docker', 'Lambda']
+    'Python Developer': ['Python', 'AWS', 'Kubernetes', 'Docker', 'Lambda'],
+    'Machine Learning Engineer': ['Python', 'Machine Learning', 'Deep Learning', 'TensorFlow', 'PyTorch'],
+    'MLOps Engineer': ['AWS', 'Docker', 'Kubernetes', 'Machine Learning', 'Python'],
+    'Data Engineer': ['Python', 'SQL', 'AWS', 'Lambda', 'Docker'],
+    'Deep Learning Engineer': ['Python', 'Deep Learning', 'TensorFlow', 'PyTorch', 'AWS'],
+    'Cloud AI Engineer': ['AWS', 'Lambda', 'Machine Learning', 'Docker', 'Python'],
+    'Backend Engineer (AI/ML Focused)': ['Python', 'SQL', 'AWS', 'Docker', 'Machine Learning'],
 }
 
 # Interview Type Configuration - Using relaxed rubrics from Rubrics.docx for all types
@@ -733,20 +739,13 @@ def get_mock_interview_questions():
                 'message': 'Job role is required'
             }), 400
         
-        # Define job roles and their skills (matching frontend)
-        job_roles_skills = {
-            'AI Engineer': ['Machine Learning', 'Python', 'TensorFlow', 'PyTorch', 'Deep Learning'],
-            'Data Scientist': ['Python', 'Machine Learning', 'SQL', 'Data Analysis', 'Statistics'],
-            'Python Developer': ['Python', 'AWS', 'Kubernetes', 'Docker', 'Lambda']
-        }
-        
-        if job_role not in job_roles_skills:
+        if job_role not in PLATFORM_SKILLS:
             return jsonify({
                 'success': False,
                 'message': f'Job role "{job_role}" not found'
             }), 400
         
-        skills = job_roles_skills[job_role]
+        skills = PLATFORM_SKILLS[job_role]
         all_questions = []
         questions_per_skill = 3
         min_questions = 15  # Target 15 questions total
@@ -1737,20 +1736,14 @@ def vapi_webhook():
                 asked_questions = parameters.get('asked_questions', [])
                 
                 # Fetch questions
-                job_roles_skills = {
-                    'AI Engineer': ['Machine Learning', 'Python', 'TensorFlow', 'PyTorch', 'Deep Learning'],
-                    'Data Scientist': ['Python', 'Machine Learning', 'SQL', 'Data Analysis', 'Statistics'],
-                    'Python Developer': ['Python', 'AWS', 'Kubernetes', 'Docker', 'Lambda']
-                }
-                
-                if job_role not in job_roles_skills:
+                if job_role not in PLATFORM_SKILLS:
                     return jsonify({
                         'result': 'No more questions available'
                     })
                 
                 # Get all available questions
                 all_questions = []
-                for skill in job_roles_skills[job_role]:
+                for skill in PLATFORM_SKILLS[job_role]:
                     # Get table name based on interview type (dictionary-based, no if-else)
                     table_name = get_question_table_name(interview_type, skill)
                     questions, error = get_questions_from_table(table_name)
