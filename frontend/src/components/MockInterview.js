@@ -160,11 +160,15 @@ const MockInterview = () => {
   };
 
   const getVapiStatusCode = (error) =>
-    error?.status || error?.response?.status || error?.statusCode;
+    error?.status ||
+    error?.statusCode ||
+    error?.response?.status ||
+    (typeof error?.error === 'object' && error.error?.statusCode);
 
   const getBaseVapiMessage = (error) => {
+    const nested = error?.error;
+    if (typeof nested === 'object' && nested?.message) return nested.message;
     if (error?.message) return error.message;
-    if (error?.error?.message) return error.error.message;
     if (error?.response?.data?.message) return error.response.data.message;
     if (error?.response?.statusText) return error.response.statusText;
     if (typeof error === 'string') return error;
@@ -219,7 +223,8 @@ const MockInterview = () => {
   ];
 
 
-  // Fetch questions for all skills
+  // Fetch questions for all skills. Returns questions in the same tick so callers can
+  // build prompts without relying on async setQuestions (which would still be stale).
   const fetchQuestions = async () => {
     try {
       setIsLoading(true);
@@ -244,15 +249,15 @@ const MockInterview = () => {
       
       if (data.success && data.questions) {
         setQuestions(data.questions);
-        return true;
+        return { ok: true, questions: data.questions };
       } else {
         setError(data.message || 'No questions available');
-        return false;
+        return { ok: false, questions: [] };
       }
     } catch (error) {
       console.error('Error fetching questions:', error);
       setError('Failed to load questions. Please try again.');
-      return false;
+      return { ok: false, questions: [] };
     } finally {
       setIsLoading(false);
     }
@@ -266,9 +271,9 @@ const MockInterview = () => {
     }
 
 
-    // Fetch questions first
-    const questionsLoaded = await fetchQuestions();
-    if (!questionsLoaded) {
+    // Fetch questions first (use returned array — state is still stale until next render)
+    const { ok: questionsOk, questions: questionsForPrompt } = await fetchQuestions();
+    if (!questionsOk || !questionsForPrompt?.length) {
       return;
     }
 
@@ -313,7 +318,7 @@ CRITICAL INTERVIEW FLOW - FOLLOW THIS EXACTLY:
 3. STOP and WAIT for the candidate's complete response. DO NOT ask another question until they finish answering.
 4. After they finish introducing themselves, ask 1-2 follow-up questions based on what they said. Wait for each answer before asking the next follow-up.
 5. Once you've finished the follow-up questionsabout their introduction, you MUST move to the ACTUAL ${selectedInterviewType.toUpperCase()} QUESTIONS from the database question bank provided below.
-6. IMPORTANT: You have ${questions.length} ${selectedInterviewType} questions from the database. You MUST ask these actual ${selectedInterviewType} questions from the list.
+6. IMPORTANT: You have ${questionsForPrompt.length} ${selectedInterviewType} questions from the database. You MUST ask these actual ${selectedInterviewType} questions from the list.
 7. For EACH main question from the database (ask 3 questions per skill total):
    - Ask ONLY ONE ${selectedInterviewType} question at a time (exactly as it appears in the question bank or rephrase it naturally while keeping it a ${selectedInterviewType} question)
    - STOP immediately - do NOT add any other questions or statements
@@ -368,7 +373,7 @@ EXAMPLES OF WHAT TO DO:
 ✅ "Tell me about your experience with Python." → Wait for complete answer → "Can you describe a project where you used Python?" → Wait for complete answer → Next main question`;
 
       // Build assistant message with questions
-      const questionsText = questions.map((q, idx) => 
+      const questionsText = questionsForPrompt.map((q, idx) => 
         `${idx + 1}. [${q.skill}] ${q.question}`
       ).join('\n');
 
@@ -429,7 +434,7 @@ CRITICAL INSTRUCTIONS - READ CAREFULLY:
           candidate_name: candidateName,
           job_role: selectedRole,
           interview_type: selectedInterviewType,
-          questions: questions,
+          questions: questionsForPrompt,
           system_message: systemMessage,
           assistant_message: assistantMessage
         })
@@ -507,14 +512,40 @@ CRITICAL INSTRUCTIONS - READ CAREFULLY:
 
       clearVapiListeners();
 
+      // Assign before start() so the error handler can stop the client if the web call fails
+      vapiRef.current = vapi;
+
       addVapiListener('error', (error) => {
         console.error('VAPI error event:', error);
 
         const { statusCode, message } = getVapiErrorInfo(error);
+        const msgLower = (message || '').toLowerCase();
+        const isBilling =
+          msgLower.includes('wallet') ||
+          msgLower.includes('balance') ||
+          msgLower.includes('credit') ||
+          msgLower.includes('purchase') ||
+          msgLower.includes('payment') ||
+          msgLower.includes('plan');
 
-        setError(`VAPI error (${statusCode || 'Unknown'}): ${message}`);
+        const displayMsg = isBilling
+          ? `${message} Add credits or upgrade your plan at https://dashboard.vapi.ai — voice calls cannot start until your VAPI balance is positive.`
+          : `VAPI error (${statusCode || 'Unknown'}): ${message}`;
+
+        setError(displayMsg);
         setIsLoading(false);
         setCallStatus('idle');
+        setIsCallActive(false);
+        setIsInterviewActive(false);
+        setShowForm(true);
+
+        try {
+          vapiRef.current?.stop?.();
+        } catch (_) {
+          /* ignore */
+        }
+        clearVapiListeners();
+        vapiRef.current = null;
       });
       
       addVapiListener('call-start', (callData) => {
@@ -548,7 +579,11 @@ CRITICAL INSTRUCTIONS - READ CAREFULLY:
           console.error('Error message:', startError?.message);
           
           const status = startError?.response?.status || startError?.status || startError?.error?.status || startError?.statusCode;
-          const errorMessage = startError?.response?.data?.message || startError?.message || startError?.error?.message || JSON.stringify(startError);
+          const errorMessage =
+            startError?.response?.data?.message ||
+            (typeof startError?.error === 'object' && startError.error?.message) ||
+            startError?.message ||
+            JSON.stringify(startError);
           
           // Try fallback if we have assistantId and full assistant config
           if (status === 400 && callConfig.assistantId && configData.assistant) {
@@ -588,9 +623,6 @@ CRITICAL INSTRUCTIONS - READ CAREFULLY:
         setIsInterviewActive(true);
         setIsLoading(false);
         setShowForm(false);
-        
-        // Store VAPI instance
-        vapiRef.current = vapi;
         
         setConversationHistory([]);
         conversationHistoryRef.current = [];
@@ -846,6 +878,13 @@ CRITICAL INSTRUCTIONS - READ CAREFULLY:
         
       } catch (startError) {
         console.error('Error starting VAPI call:', startError);
+        try {
+          vapiRef.current?.stop?.();
+        } catch (_) {
+          /* ignore */
+        }
+        clearVapiListeners();
+        vapiRef.current = null;
         throw new Error(`Failed to start call: ${startError.message || 'Unknown error'}`);
       }
       
@@ -854,6 +893,9 @@ CRITICAL INSTRUCTIONS - READ CAREFULLY:
       setError(`Failed to start interview: ${error.message || 'Unknown error'}`);
       setIsLoading(false);
       setCallStatus('idle');
+      setIsCallActive(false);
+      setIsInterviewActive(false);
+      setShowForm(true);
     }
   };
 

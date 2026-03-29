@@ -245,16 +245,10 @@ Session(app)
 
 # Enable CORS for frontend communication with credentials support
 # IMPORTANT: Cannot use "*" with supports_credentials=True - must specify exact origins
-FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
-allowed_origins = [
-    FRONTEND_URL.rstrip('/'),
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    'http://localhost:3001',  # Alternative port
-    'http://127.0.0.1:3001',
-    'http://localhost:3002',  # Alternative port
-    'http://127.0.0.1:3002'
-]
+# FRONTEND_URL + optional CORS_ORIGINS — see cors_config.py
+from cors_config import get_allowed_origins
+
+allowed_origins = get_allowed_origins()
 
 # Apply CORS globally to all routes (more reliable than resource-specific)
 CORS(app, 
