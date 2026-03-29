@@ -41,27 +41,16 @@ def get_openai_client() -> OpenAI:
         openai_client = OpenAI()
     return openai_client
 
-def transcribe_audio(audio_file_path):
-    """Transcribe audio using local Whisper; on failure, fall back to OpenAI API if available."""
-    # First: local whisper
+def _transcribe_openai_api(audio_file_path):
+    """OpenAI Whisper API — lightweight (no PyTorch). Required for small cloud hosts (e.g. Render)."""
+    if not os.getenv("OPENAI_API_KEY"):
+        return None
     try:
-        model = get_whisper_model()
-        result = model.transcribe(audio_file_path)
-        return result["text"]
-    except Exception as e:
-        logger.error(f"Local Whisper transcription error: {e}")
-
-    # Fallback: OpenAI Whisper API
-    try:
-        api_key_present = bool(os.getenv("OPENAI_API_KEY"))
-        if not api_key_present:
-            logger.error("OPENAI_API_KEY not set; cannot use OpenAI Whisper fallback.")
-            return None
         client = get_openai_client()
         with open(audio_file_path, "rb") as f:
             tr = client.audio.transcriptions.create(
                 model=os.getenv("OPENAI_STT_MODEL", "whisper-1"),
-                file=f
+                file=f,
             )
         text = getattr(tr, "text", None) or (tr.get("text") if isinstance(tr, dict) else None)
         if not text:
@@ -71,6 +60,46 @@ def transcribe_audio(audio_file_path):
     except Exception as e:
         logger.error(f"OpenAI Whisper API transcription error: {e}")
         return None
+
+
+def _transcribe_local_whisper(audio_file_path):
+    """Local openai-whisper + PyTorch — heavy; avoid on low-RAM serverless/workers."""
+    try:
+        model = get_whisper_model()
+        result = model.transcribe(audio_file_path)
+        return result.get("text") or ""
+    except Exception as e:
+        logger.error(f"Local Whisper transcription error: {e}")
+        return None
+
+
+def transcribe_audio(audio_file_path):
+    """
+    Transcribe audio to text.
+
+    Default order (production-friendly):
+      1) OpenAI Whisper API if OPENAI_API_KEY is set — avoids downloading ~140MB models + torch on Render.
+      2) Local Whisper otherwise (dev machines with openai-whisper installed).
+
+    Set FORCE_LOCAL_WHISPER=true to prefer local first even when OPENAI_API_KEY is set.
+    """
+    force_local = os.getenv("FORCE_LOCAL_WHISPER", "").lower() in ("1", "true", "yes")
+    have_key = bool(os.getenv("OPENAI_API_KEY"))
+
+    if force_local:
+        text = _transcribe_local_whisper(audio_file_path)
+        if text:
+            return text
+        return _transcribe_openai_api(audio_file_path)
+
+    if have_key:
+        text = _transcribe_openai_api(audio_file_path)
+        if text:
+            return text
+        logger.warning("OpenAI STT failed or returned empty; trying local Whisper if available...")
+        return _transcribe_local_whisper(audio_file_path)
+
+    return _transcribe_local_whisper(audio_file_path)
 
 def process_text_response(text_response, question, job_title="Software Engineer", skills="Python, React", interview_type=""):
     """Process text response using LLM and rubric-derived criteria."""
