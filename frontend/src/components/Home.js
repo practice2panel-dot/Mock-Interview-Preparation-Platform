@@ -34,7 +34,7 @@ const Home = () => {
     {
       icon: <Target size={48} strokeWidth={1.5} />,
       title: 'Mock Interviews',
-      description: 'Simulate real interview flows with role-based questions and instant feedback.',
+      description: 'Run realistic mock interviews with guided feedback and follow-ups.',
       color: '#2E86AB'
     },
     {

@@ -102,11 +102,9 @@ def drop_dashboard_tables():
         with conn.cursor() as cursor:
             cursor.execute("DROP TABLE IF EXISTS skill_prep_questions;")
             cursor.execute("DROP TABLE IF EXISTS skill_prep_progress;")
-            cursor.execute("DROP TABLE IF EXISTS mock_interview_sessions;")
             cursor.execute("DROP TABLE IF EXISTS dashboard_favorites;")
             cursor.execute("DROP TABLE IF EXISTS dashboard_practice_sessions;")
             cursor.execute("DROP TABLE IF EXISTS dashboard_skill_attempts;")
-            cursor.execute("DROP TABLE IF EXISTS dashboard_mock_interviews;")
             cursor.execute("DROP TABLE IF EXISTS dashboard_skill_questions;")
             cursor.execute("DROP TABLE IF EXISTS dashboard_skill_progress;")
         conn.commit()

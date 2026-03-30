@@ -76,18 +76,18 @@ function App() {
               }
             />
             <Route
-              path="/interview-prep"
-              element={
-                <ProtectedRoute>
-                  <Navigate to="/skill-prep" replace />
-                </ProtectedRoute>
-              }
-            />
-            <Route
               path="/mock-interview"
               element={
                 <ProtectedRoute>
                   <Layout><MockInterview /></Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/interview-prep"
+              element={
+                <ProtectedRoute>
+                  <Navigate to="/skill-prep" replace />
                 </ProtectedRoute>
               }
             />

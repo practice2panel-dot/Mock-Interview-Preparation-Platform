@@ -1,6 +1,6 @@
 # 🎯 Practice2Panel - AI Powered Interview Preparation Platform
 
-A comprehensive full-stack application for AI-powered interview preparation featuring skill-based practice questions and mock interviews. Built with React frontend and Flask backend, Practice2Panel provides realistic interview experiences with voice recording capabilities.
+A comprehensive full-stack application for AI-powered interview preparation featuring skill-based practice questions and mock interviews. Built with React frontend and Flask backend, Practice2Panel provides structured interview prep with optional voice responses.
 
 ## 🌟 Key Features
 
@@ -11,11 +11,10 @@ A comprehensive full-stack application for AI-powered interview preparation feat
 - **Real-time Feedback**: Instant explanations for correct/incorrect answers
 - **Progress Tracking**: Monitor scores and accuracy per skill
 
-### 🎤 AI-Powered Mock Interviews
-- **Voice-to-Voice Experience**: Realistic interview simulation
-- **Adaptive Questioning**: Dynamic questions based on role and skill selection
-- **Mixed Question Types**: Technical + Behavioral questions
-- **Voice Recording**: Speech-to-text transcription capabilities
+### 🎤 Mock Interviews
+- **Role + Type Based**: Choose job role and interview type
+- **Interactive Flow**: Follow-up questions and structured feedback
+- **Voice-Friendly**: Works with browser speech input where supported
 
 ### 📊 Dashboard & Analytics
 - **Progress Overview**: Visual representation of learning journey
@@ -216,12 +215,11 @@ WHISPER_MODEL=base  # OpenAI Whisper model (tiny, base, small, medium, large)
 5. Answer MCQs and receive instant feedback
 6. Track your progress and scores
 
-### AI Interview Practice
-1. Go to "AI Interview" section
-2. Choose your job role and interview type
-3. Start the mock interview
-4. Answer questions verbally using voice recording
-5. Review transcribed responses
+### Mock Interview Practice
+1. Navigate to "Mock Interview" from the main menu
+2. Enter your name, choose job role, and select interview type
+3. Answer questions (voice or text) and receive instant feedback
+4. Complete the session to get a summary report
 
 ### Dashboard
 1. Access "Dashboard" to view your progress
