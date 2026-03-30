@@ -9,9 +9,22 @@ import os
 from dotenv import load_dotenv
 import json
 import re
+import difflib
 import logging
 import traceback
+import random
 from voice_processor import process_text_response, get_openai_client
+from mock_interview.session_manager import session_manager as iqra_session_manager
+from mock_interview.agents import (
+    QuestionAgent as IqraQuestionAgent,
+    EvaluatorAgent as IqraEvaluatorAgent,
+    FollowUpAgent as IqraFollowUpAgent,
+    HintAgent as IqraHintAgent,
+    RecruiterAgent as IqraRecruiterAgent,
+    IntentDetectorAgent as IqraIntentDetectorAgent,
+    ImprovementAgent as IqraImprovementAgent,
+)
+from mock_interview.config import JOB_ROLE_SKILLS as IQRA_JOB_ROLE_SKILLS, INTERVIEW_TYPES as IQRA_INTERVIEW_TYPES
 from rubric_loader import load_rubric_text
 from random import shuffle
 from datetime import datetime, timedelta
@@ -19,6 +32,19 @@ from datetime import datetime, timedelta
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Cache for dynamic keywords extracted from question tables
+_DB_KEYWORDS_CACHE = {"keywords": [], "updated_at": None}
+_DB_KEYWORDS_TTL_SECONDS = 600
+
+_KEYWORD_STOPWORDS = {
+    'the', 'and', 'for', 'with', 'that', 'this', 'these', 'those', 'from', 'into',
+    'what', 'why', 'how', 'when', 'where', 'which', 'who', 'whom', 'can', 'could',
+    'should', 'would', 'will', 'shall', 'may', 'might', 'must', 'about', 'explain',
+    'describe', 'define', 'difference', 'between', 'use', 'using', 'used', 'like',
+    'your', 'you', 'are', 'is', 'was', 'were', 'be', 'been', 'being', 'do', 'does',
+    'did', 'a', 'an', 'in', 'on', 'at', 'to', 'of', 'or', 'as', 'by', 'it', 'its'
+}
 
 def execute_db_query(query, params=None, fetch_one=False, fetch_all=False):
     """Utility function to execute database queries and reduce code duplication."""
@@ -56,24 +82,6 @@ PLATFORM_SKILLS = {
     'Cloud AI Engineer': ['AWS', 'Lambda', 'Machine Learning', 'Docker', 'Python'],
     'Backend Engineer (AI/ML Focused)': ['Python', 'SQL', 'AWS', 'Docker', 'Machine Learning'],
 }
-
-
-def resolve_mock_interview_skills(job_role, client_skills=None):
-    """
-    Skills used to resolve DB tables like {interview_type}_python.
-
-    If job_role is in PLATFORM_SKILLS, the server list is authoritative (same as Skill Prep
-    when that role exists on the server).
-
-    If the role is missing on the server (stale deploy) but the frontend sends `skills`,
-    use that list so question loading matches /api/questions/<type>/<skill> behavior.
-    """
-    if job_role in PLATFORM_SKILLS:
-        return list(PLATFORM_SKILLS[job_role])
-    if isinstance(client_skills, list) and client_skills:
-        cleaned = [str(s).strip() for s in client_skills if str(s).strip()]
-        return cleaned if cleaned else None
-    return None
 
 
 # Interview Type Configuration - Using relaxed rubrics from Rubrics.docx for all types
@@ -587,6 +595,359 @@ def health_check():
         'status': 'healthy'
     })
 
+
+def _iqra_handle_next_main_question(session, session_id):
+    """Advance to the next main question for the Iqra mock interview flow."""
+    session.current_question_index += 1
+
+    if session.current_question_index < len(session.questions):
+        next_question = session.questions[session.current_question_index]
+        session.last_question = next_question
+        return jsonify({
+            "message": IqraRecruiterAgent.get_polite_message("next"),
+            "next_question": next_question,
+            "is_followup": False,
+            "session_id": session_id,
+            "intent": "normal_answer",
+            "question_number": session.current_question_index + 1,
+            "total_questions": len(session.questions)
+        }), 200
+
+    session.completed = True
+    return jsonify({
+        "message": IqraRecruiterAgent.get_polite_message("complete"),
+        "completed": True,
+        "session_id": session_id,
+        "intent": "normal_answer"
+    }), 200
+
+
+@app.route('/api/mock-interview/start', methods=['POST'])
+def iqra_start_interview():
+    """Start a new mock interview session (Iqra flow)."""
+    try:
+        data = request.get_json() or {}
+        name = (data.get('name') or '').strip()
+        job_role = (data.get('job_role') or '').strip()
+        interview_type = (data.get('interview_type') or '').strip()
+
+        if not name:
+            return jsonify({"error": "Name is required"}), 400
+        if job_role not in PLATFORM_SKILLS:
+            return jsonify({"error": f"Invalid job role. Must be one of: {list(PLATFORM_SKILLS.keys())}"}), 400
+        if interview_type not in IQRA_INTERVIEW_TYPES:
+            return jsonify({"error": f"Invalid interview type. Must be one of: {IQRA_INTERVIEW_TYPES}"}), 400
+
+        session_obj = iqra_session_manager.create_session(name, job_role, interview_type)
+
+        skills = PLATFORM_SKILLS.get(job_role, [])
+        questions = []
+        normalized_type = interview_type.lower() if interview_type else ''
+
+        if normalized_type == "behavioral":
+            table_name = get_question_table_name(interview_type)
+            table_questions, error = get_questions_from_table(table_name)
+            if table_questions:
+                random.shuffle(table_questions)
+                questions = table_questions[:min(10, len(table_questions))]
+        else:
+            for skill in skills:
+                table_name = get_question_table_name(interview_type, skill)
+                table_questions, error = get_questions_from_table(table_name)
+                if table_questions:
+                    random.shuffle(table_questions)
+                    pick_count = random.randint(3, 4)
+                    pick_count = min(pick_count, len(table_questions))
+                    questions.extend(table_questions[:pick_count])
+
+        if not questions:
+            questions = IqraQuestionAgent.generate_questions(job_role, interview_type, num_questions=5)
+
+        random.shuffle(questions)
+        session_obj.questions = questions
+
+        if questions:
+            session_obj.current_question_index = 0
+            session_obj.last_question = questions[0]
+
+        welcome_message = None
+        if interview_type.lower() == "behavioral":
+            welcome_message = IqraRecruiterAgent.get_welcome_message(name, interview_type)
+
+        response_data = {
+            "session_id": session_obj.session_id,
+            "name": session_obj.name,
+            "job_role": session_obj.job_role,
+            "interview_type": session_obj.interview_type,
+            "first_question": questions[0] if questions else "No questions generated",
+            "total_questions": len(questions),
+        }
+        if welcome_message:
+            response_data["welcome_message"] = welcome_message
+
+        return jsonify(response_data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/mock-interview/interact', methods=['POST'])
+def iqra_interact():
+    """Handle mock interview interactions with automatic intent detection."""
+    try:
+        data = request.get_json() or {}
+        session_id = (data.get('session_id') or '').strip()
+        user_input = (data.get('user_input') or '').strip()
+
+        if not session_id:
+            return jsonify({"error": "session_id is required"}), 400
+        if not user_input:
+            return jsonify({"error": "user_input is required"}), 400
+
+        session_obj = iqra_session_manager.get_session(session_id)
+        if not session_obj:
+            return jsonify({"error": "Invalid session_id"}), 404
+
+        current_question = session_obj.last_question or ""
+        if session_obj.current_question_index < len(session_obj.questions) and not current_question:
+            current_question = session_obj.questions[session_obj.current_question_index]
+
+        try:
+            intent = IqraIntentDetectorAgent.detect_intent(
+                user_input=user_input,
+                current_question=current_question,
+                conversation_state=""
+            )
+        except Exception as e:
+            logger.warning(f"Iqra intent detection error: {e}")
+            intent = "normal_answer"
+
+        if intent == 'repeat_question':
+            return jsonify({
+                "message": IqraRecruiterAgent.get_polite_message("repeat"),
+                "question": session_obj.last_question,
+                "session_id": session_id,
+                "intent": "repeat_question"
+            }), 200
+
+        if intent == 'hint_request':
+            if not session_obj.last_question:
+                return jsonify({"error": "No question available for hint"}), 400
+
+            hint = IqraHintAgent.provide_hint(
+                session_obj.last_question,
+                session_obj.job_role,
+                session_obj.interview_type
+            )
+            return jsonify({
+                "hint": hint,
+                "message": "Here's a hint to help guide your thinking:",
+                "session_id": session_id,
+                "intent": "hint_request"
+            }), 200
+
+        if intent == 'need_time':
+            return jsonify({
+                "message": IqraRecruiterAgent.get_polite_message("pause"),
+                "session_id": session_id,
+                "intent": "need_time",
+                "pause_seconds": 10
+            }), 200
+
+        if intent == 'normal_answer':
+            is_followup = session_obj.current_follow_up_index < len(session_obj.follow_up_questions)
+
+            if is_followup:
+                current_followup = session_obj.follow_up_questions[session_obj.current_follow_up_index]
+                evaluation = IqraEvaluatorAgent.evaluate_answer(
+                    current_followup,
+                    user_input,
+                    session_obj.job_role,
+                    session_obj.interview_type
+                )
+
+                session_obj.answers.append({
+                    "question": current_followup,
+                    "answer": user_input,
+                    "is_followup": True,
+                    "parent_question_index": session_obj.current_question_index - 1,
+                    "feedback": evaluation["short_feedback"],
+                    "detailed_evaluation": evaluation["detailed_evaluation"]
+                })
+                session_obj.detailed_evaluations.append({
+                    "question": current_followup,
+                    "evaluation": evaluation
+                })
+
+                session_obj.current_follow_up_index += 1
+
+                if session_obj.current_follow_up_index < len(session_obj.follow_up_questions):
+                    next_followup = session_obj.follow_up_questions[session_obj.current_follow_up_index]
+                    session_obj.last_question = next_followup
+                    return jsonify({
+                        "feedback": evaluation["short_feedback"],
+                        "next_question": next_followup,
+                        "is_followup": True,
+                        "session_id": session_id,
+                        "intent": "normal_answer"
+                    }), 200
+
+                session_obj.follow_up_questions = []
+                session_obj.current_follow_up_index = 0
+                return _iqra_handle_next_main_question(session_obj, session_id)
+
+            if session_obj.current_question_index >= len(session_obj.questions):
+                return jsonify({"error": "No more questions available"}), 400
+            current_question = session_obj.questions[session_obj.current_question_index]
+            evaluation = IqraEvaluatorAgent.evaluate_answer(
+                current_question,
+                user_input,
+                session_obj.job_role,
+                session_obj.interview_type
+            )
+
+            session_obj.answers.append({
+                "question": current_question,
+                "answer": user_input,
+                "is_followup": False,
+                "feedback": evaluation["short_feedback"],
+                "detailed_evaluation": evaluation["detailed_evaluation"]
+            })
+            session_obj.detailed_evaluations.append({
+                "question": current_question,
+                "evaluation": evaluation
+            })
+
+            follow_ups = IqraFollowUpAgent.generate_follow_ups(
+                current_question,
+                user_input,
+                session_obj.job_role,
+                session_obj.interview_type
+            )
+
+            if follow_ups:
+                session_obj.follow_up_questions = [follow_ups[0]]
+                session_obj.current_follow_up_index = 0
+                session_obj.last_question = follow_ups[0]
+
+                return jsonify({
+                    "feedback": evaluation["short_feedback"],
+                    "follow_up_question": follow_ups[0],
+                    "is_followup": True,
+                    "session_id": session_id,
+                    "intent": "normal_answer"
+                }), 200
+
+            return _iqra_handle_next_main_question(session_obj, session_id)
+
+        return jsonify({
+            "error": "Unable to determine intent, please try again",
+            "session_id": session_id
+        }), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/mock-interview/end', methods=['POST'])
+def iqra_end_interview():
+    """End interview and return detailed summary (Iqra flow)."""
+    try:
+        data = request.get_json() or {}
+        session_id = (data.get('session_id') or '').strip()
+
+        if not session_id:
+            return jsonify({"error": "session_id is required"}), 400
+
+        session_obj = iqra_session_manager.get_session(session_id)
+        if not session_obj:
+            return jsonify({"error": "Invalid session_id"}), 404
+
+        if session_obj.interview_type.lower() == "behavioral":
+            all_scores = {
+                "Situation Clarity": [],
+                "Task Definition": [],
+                "Action Effectiveness": [],
+                "Result Impact": [],
+                "Communication Skill": []
+            }
+        else:
+            all_scores = {
+                "Technical Accuracy": [],
+                "Clarity of Communication": [],
+                "Depth of Understanding": [],
+                "Relevance to Role": [],
+                "Overall Quality": []
+            }
+
+        for eval_data in session_obj.detailed_evaluations:
+            evaluation = eval_data.get("evaluation", {})
+            rubric = evaluation.get("rubric_scores", {})
+            for metric in all_scores.keys():
+                if metric in rubric:
+                    score_str = rubric[metric]
+                    try:
+                        score = float(score_str.split('/')[0].strip())
+                        all_scores[metric].append(score)
+                    except Exception:
+                        pass
+
+        overall_scores = {}
+        for metric, scores in all_scores.items():
+            if scores:
+                avg_score = round(sum(scores) / len(scores), 1)
+                overall_scores[metric] = f"Score: {avg_score}/10"
+            else:
+                overall_scores[metric] = "Score: 0/10"
+
+        improvements = IqraImprovementAgent.generate_improvements(
+            session_obj.detailed_evaluations,
+            session_obj.job_role,
+            session_obj.interview_type
+        )
+
+        closing_message = IqraRecruiterAgent.get_closing_message(
+            session_obj.name,
+            session_obj.interview_type,
+            overall_scores
+        )
+
+        summary = {
+            "session_id": session_id,
+            "name": session_obj.name,
+            "job_role": session_obj.job_role,
+            "interview_type": session_obj.interview_type,
+            "total_questions": len(session_obj.questions),
+            "total_answers": len(session_obj.answers),
+            "overall_scores": overall_scores,
+            "areas_of_improvement": improvements,
+            "closing_message": closing_message
+        }
+
+        session_obj.completed = True
+        return jsonify(summary), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/mock-interview/next-question', methods=['POST'])
+def iqra_next_question():
+    """Advance to the next main question explicitly (Iqra flow)."""
+    try:
+        data = request.get_json() or {}
+        session_id = (data.get('session_id') or '').strip()
+        if not session_id:
+            return jsonify({"error": "session_id is required"}), 400
+
+        session_obj = iqra_session_manager.get_session(session_id)
+        if not session_obj:
+            return jsonify({"error": "Invalid session_id"}), 404
+
+        session_obj.follow_up_questions = []
+        session_obj.current_follow_up_index = 0
+
+        return _iqra_handle_next_main_question(session_obj, session_id)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 def _build_dashboard_filters(interview_type=None, skill=None):
     conditions = ["user_id = %s"]
     params = [session.get('user_id')]
@@ -611,68 +972,6 @@ def dashboard_summary():
         conn = get_pg_connection()
         try:
             with conn.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT role, interview_type, duration_seconds, created_at
-                    FROM mock_interview_sessions
-                    WHERE user_id = %s
-                    ORDER BY created_at DESC
-                    LIMIT 10
-                    """,
-                    (session.get('user_id'),)
-                )
-                mock_history = [
-                    {
-                        'role': row[0],
-                        'interview_type': row[1],
-                        'duration_seconds': int(row[2] or 0),
-                        'created_at': row[3].isoformat()
-                    }
-                    for row in cursor.fetchall()
-                ]
-
-                cursor.execute(
-                    """
-                    SELECT COUNT(*) FROM mock_interview_sessions
-                    WHERE user_id = %s
-                    """,
-                    (session.get('user_id'),)
-                )
-                mock_count = cursor.fetchone()[0]
-
-                cursor.execute(
-                    """
-                    SELECT interview_type, COUNT(*)
-                    FROM mock_interview_sessions
-                    WHERE user_id = %s AND interview_type IS NOT NULL
-                    GROUP BY interview_type
-                    ORDER BY interview_type
-                    """,
-                    (session.get('user_id'),)
-                )
-                mock_breakdown = [{'interview_type': row[0], 'count': int(row[1])} for row in cursor.fetchall()]
-
-                cursor.execute(
-                    """
-                    SELECT COALESCE(SUM(duration_seconds), 0)
-                    FROM mock_interview_sessions
-                    WHERE user_id = %s
-                    """,
-                    (session.get('user_id'),)
-                )
-                mock_time_seconds = cursor.fetchone()[0] or 0
-
-                cursor.execute(
-                    """
-                    SELECT DISTINCT DATE(created_at) AS activity_date
-                    FROM mock_interview_sessions
-                    WHERE user_id = %s
-                    ORDER BY activity_date DESC
-                    """,
-                    (session.get('user_id'),)
-                )
-                mock_activity_dates = [row[0].isoformat() for row in cursor.fetchall()]
-
                 cursor.execute(
                     """
                     SELECT COUNT(*), COALESCE(SUM(duration_seconds), 0)
@@ -742,16 +1041,11 @@ def dashboard_summary():
                 ]
 
             summary = {
-                'mock_interview_history': list(reversed(mock_history)),
-                'mock_interview_count': int(mock_count or 0),
-                'mock_interview_breakdown': mock_breakdown,
-                'mock_interview_time_seconds': int(mock_time_seconds or 0),
                 'questions_total': int(questions_total or 0),
                 'questions_time_seconds': int(questions_time_seconds or 0),
                 'questions_breakdown': questions_breakdown,
                 'skill_progress': skill_progress,
-                'recent_questions': list(reversed(recent_questions)),
-                'mock_activity_dates': mock_activity_dates
+                'recent_questions': list(reversed(recent_questions))
             }
 
             return jsonify({'success': True, 'summary': summary}), 200
@@ -759,284 +1053,6 @@ def dashboard_summary():
             conn.close()
     except Exception as e:
         return jsonify({'success': False, 'message': f'Error loading dashboard summary: {str(e)}'}), 500
-
-@app.route('/api/mock-interview/questions', methods=['POST'])
-def get_mock_interview_questions():
-    """Get questions for all skills of a job role for mock interview"""
-    try:
-        data = request.get_json()
-        job_role = data.get('job_role', '')
-        interview_type = data.get('interview_type', 'technical')
-        
-        if not job_role:
-            return jsonify({
-                'success': False,
-                'message': 'Job role is required'
-            }), 400
-        
-        client_skills = data.get('skills')
-        skills = resolve_mock_interview_skills(job_role, client_skills)
-        if not skills:
-            return jsonify({
-                'success': False,
-                'message': (
-                    f'Job role "{job_role}" is not recognized on the server and no valid skills '
-                    f'list was sent. Update the backend or ensure the client sends a skills array.'
-                )
-            }), 400
-        
-        all_questions = []
-        questions_per_skill = 3
-        min_questions = 15  # Target 15 questions total
-        
-        # Check if behavioral interview (dictionary-based check)
-        normalized_type = interview_type.lower() if interview_type else 'default'
-        is_behavioral = normalized_type == 'behavioral'
-        
-        # For behavioral interviews: fetch from single table
-        # For other interviews: fetch from skill-specific tables
-        table_name = get_question_table_name(interview_type)
-        logger.info(f"Fetching questions from table: {table_name}")
-        questions, error = get_questions_from_table(table_name)
-        
-        # Handle behavioral interviews (single table)
-        behavioral_questions_processed = False
-        if not error and questions and is_behavioral:
-            logger.info(f"Found {len(questions)} behavioral questions in database")
-            shuffle(questions)
-            selected_questions = questions[:min(min_questions, len(questions))]
-            logger.info(f"Selected {len(selected_questions)} behavioral questions for interview")
-            for q in selected_questions:
-                all_questions.append({
-                    'question': q,
-                    'skill': 'Behavioral',
-                    'interview_type': interview_type
-                })
-            behavioral_questions_processed = True
-        
-        # Handle other interview types (skill-specific tables)
-        if not behavioral_questions_processed:
-            for skill in skills:
-                table_name = get_question_table_name(interview_type, skill)
-                questions, error = get_questions_from_table(table_name)
-                
-                if not error and questions:
-                    shuffle(questions)
-                    questions_to_take = min(questions_per_skill, len(questions))
-                    selected_questions = questions[:questions_to_take]
-                    for q in selected_questions:
-                        all_questions.append({
-                            'question': q,
-                            'skill': skill,
-                            'interview_type': interview_type
-                        })
-            
-            # If we still don't have enough questions, try to get more from skills that have available questions
-            # But limit to 15 questions total for interview
-            max_questions = len(skills) * questions_per_skill
-            if len(all_questions) < min_questions:
-                for skill in skills:
-                    if len(all_questions) >= max_questions:
-                        break
-                        
-                    skill_lower = skill.lower().replace(' ', '')
-                    table_name = f"{interview_type}_{skill_lower}"
-                    
-                    questions, error = get_questions_from_table(table_name)
-                    if not error and questions:
-                        shuffle(questions)
-                        # Get questions we haven't already selected
-                        existing_questions = [q['question'] for q in all_questions if q['skill'] == skill]
-                        new_questions = [q for q in questions if q not in existing_questions]
-                        
-                        # Add more questions until we reach max_questions
-                        needed = min(max_questions - len(all_questions), len(new_questions))
-                        for q in new_questions[:needed]:
-                            all_questions.append({
-                                'question': q,
-                                'skill': skill,
-                                'interview_type': interview_type
-                            })
-            
-            # Limit total questions to 12 maximum
-            if len(all_questions) > max_questions:
-                shuffle(all_questions)
-                all_questions = all_questions[:max_questions]
-        
-        # Final shuffle to randomize the order
-        shuffle(all_questions)
-        
-        if not all_questions:
-            table_name = get_question_table_name(interview_type)
-            normalized_type = interview_type.lower() if interview_type else 'default'
-            is_behavioral = normalized_type == 'behavioral'
-            error_msg = f'No questions found for {interview_type} interview type. Please check if the "{table_name}" table exists in the database and has questions.'
-            if not is_behavioral:
-                error_msg += f' Please check if tables like "{interview_type}_<skill>" exist in the database.'
-            logger.error(error_msg)
-            return jsonify({
-                'success': False,
-                'message': error_msg
-            }), 404
-        
-        logger.info(f"Successfully fetched {len(all_questions)} {interview_type} questions for {job_role}")
-        return jsonify({
-            'success': True,
-            'questions': all_questions,
-            'total_questions': len(all_questions)
-        })
-        
-    except Exception as e:
-        logger.error(f"Error fetching mock interview questions: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'Server error: {str(e)}'
-        }), 500
-
-def format_rubric_feedback(feedback_data, candidate_name, job_role, interview_type):
-    """Format structured rubric feedback into a readable text format"""
-    try:
-        from datetime import datetime
-        
-        lines = []
-        # Header
-        lines.append(f"INTERVIEW FEEDBACK REPORT")
-        lines.append(f"{'='*60}")
-        lines.append(f"Candidate: {candidate_name}")
-        lines.append(f"Position: {job_role}")
-        lines.append(f"Interview Type: {interview_type.title()}")
-        lines.append(f"Interview Details: {datetime.now().strftime('%B %d, %Y')} at {datetime.now().strftime('%I:%M %p')} | Interviewer: AI Interviewer")
-        lines.append(f"{'='*60}\n")
-        
-        # Overall Score
-        overall_score = feedback_data.get('overall_score', 0)
-        lines.append(f"OVERALL PERFORMANCE SCORE: {overall_score:.2f}/10\n")
-        
-        # Overall Feedback (use summary as overall feedback)
-        overall_feedback = feedback_data.get('summary', '')
-        if overall_feedback:
-            lines.append("OVERALL FEEDBACK")
-            lines.append("-" * 60)
-            lines.append(overall_feedback)
-            lines.append("")
-        
-        # Key Strengths
-        if feedback_data.get('key_strengths'):
-            lines.append("KEY STRENGTHS")
-            lines.append("-" * 60)
-            for i, strength in enumerate(feedback_data['key_strengths'], 1):
-                lines.append(f"{i}. {strength}")
-            lines.append("")
-        
-        # Areas for Improvement
-        if feedback_data.get('areas_for_improvement'):
-            lines.append("AREAS FOR IMPROVEMENT")
-            lines.append("-" * 60)
-            for i, area in enumerate(feedback_data['areas_for_improvement'], 1):
-                lines.append(f"{i}. {area}")
-            lines.append("")
-        
-        # Recommendations
-        if feedback_data.get('recommendations'):
-            lines.append("RECOMMENDATIONS")
-            lines.append("-" * 60)
-            for i, rec in enumerate(feedback_data['recommendations'], 1):
-                lines.append(f"{i}. {rec}")
-            lines.append("")
-        
-        # Performance Summary (at the end, only if different from overall feedback)
-        summary = feedback_data.get('summary', '')
-        if summary and summary != overall_feedback:
-            lines.append("PERFORMANCE SUMMARY")
-            lines.append("-" * 60)
-            lines.append(summary)
-            lines.append("")
-        
-        lines.append(f"{'='*60}")
-        lines.append("This evaluation was conducted using standardized rubrics to ensure fair and objective assessment.")
-        
-        return "\n".join(lines)
-        
-    except Exception as e:
-        logger.error(f"Error formatting feedback: {str(e)}")
-        # Fallback to simple format
-        score = feedback_data.get('overall_score', 0)
-        if score <= 10:
-            score = score * 10
-        strengths = ', '.join(feedback_data.get('key_strengths', [])) or 'None listed'
-        weaknesses = ', '.join(feedback_data.get('weaknesses', feedback_data.get('areas_for_improvement', []))) or 'None listed'
-        return f"INTERVIEW FEEDBACK REPORT\n{'='*60}\nCandidate: {candidate_name}\nPosition: {job_role}\nInterview Type: {interview_type.title()}\n{'='*60}\n\nOverall Score: {score:.0f}/100\n\nStrengths: {strengths}\nWeaknesses: {weaknesses}\n"
-
-def format_simple_feedback(feedback_data, candidate_name, job_role, interview_type):
-    """Format simple LLM feedback (no rubrics) into a readable text format"""
-    try:
-        from datetime import datetime
-        
-        lines = []
-        # Header
-        lines.append(f"INTERVIEW FEEDBACK REPORT")
-        lines.append(f"{'='*60}")
-        lines.append(f"Candidate: {candidate_name}")
-        lines.append(f"Position: {job_role}")
-        lines.append(f"Interview Type: {interview_type.title()}")
-        lines.append(f"Interview Details: {datetime.now().strftime('%B %d, %Y')} at {datetime.now().strftime('%I:%M %p')} | Interviewer: AI Interviewer")
-        lines.append(f"{'='*60}\n")
-        
-        # Overall Score (0-100 scale)
-        overall_score = feedback_data.get('overall_score', 0)
-        # Convert to 0-100 if it's in 0-10 scale
-        if overall_score <= 10:
-            overall_score = overall_score * 10
-        lines.append(f"OVERALL PERFORMANCE SCORE: {overall_score:.0f}/100\n")
-        
-        # Key Strengths
-        if feedback_data.get('key_strengths'):
-            lines.append("STRENGTHS")
-            lines.append("-" * 60)
-            for i, strength in enumerate(feedback_data['key_strengths'], 1):
-                lines.append(f"• {strength}")
-            lines.append("")
-        
-        # Weaknesses (prefer weaknesses, fallback to areas_for_improvement)
-        weaknesses = feedback_data.get('weaknesses') or feedback_data.get('areas_for_improvement', [])
-        if weaknesses:
-            lines.append("WEAKNESSES")
-            lines.append("-" * 60)
-            for i, weakness in enumerate(weaknesses, 1):
-                lines.append(f"• {weakness}")
-            lines.append("")
-        
-        # How to Improve (Actionable Suggestions)
-        how_to_improve = feedback_data.get('how_to_improve') or feedback_data.get('recommendations', [])
-        if how_to_improve:
-            lines.append("HOW TO IMPROVE (ACTIONABLE SUGGESTIONS)")
-            lines.append("-" * 60)
-            for i, suggestion in enumerate(how_to_improve, 1):
-                lines.append(f"• {suggestion}")
-            lines.append("")
-        
-        # Recommended Topics
-        if feedback_data.get('recommended_topics'):
-            lines.append("RECOMMENDED NEXT TOPICS TO PREPARE")
-            lines.append("-" * 60)
-            for i, topic in enumerate(feedback_data['recommended_topics'], 1):
-                lines.append(f"• {topic}")
-            lines.append("")
-        
-        lines.append(f"{'='*60}")
-        lines.append("This evaluation was conducted using AI-based natural language analysis.")
-        
-        return "\n".join(lines)
-        
-    except Exception as e:
-        logger.error(f"Error formatting feedback: {str(e)}")
-        # Fallback to simple format
-        score = feedback_data.get('overall_score', 0)
-        if score <= 10:
-            score = score * 10
-        strengths = ', '.join(feedback_data.get('key_strengths', [])) or 'None listed'
-        weaknesses = ', '.join(feedback_data.get('weaknesses', feedback_data.get('areas_for_improvement', []))) or 'None listed'
-        return f"INTERVIEW FEEDBACK REPORT\n{'='*60}\nCandidate: {candidate_name}\nPosition: {job_role}\nInterview Type: {interview_type.title()}\n{'='*60}\n\nOverall Score: {score:.0f}/100\n\nStrengths: {strengths}\nWeaknesses: {weaknesses}\n"
 
 
 def format_relative_time(dt_value):
@@ -1068,756 +1084,6 @@ def format_relative_time(dt_value):
     years = days // 365
     return f"{years} years ago"
 
-
-@app.route('/api/mock-interview/feedback', methods=['POST'])
-def generate_interview_feedback():
-    """Generate interview feedback using LLM (without rubrics - natural evaluation)"""
-    try:
-        data = request.get_json()
-        conversation_history = data.get('conversation_history', [])
-        job_role = data.get('job_role', '')
-        interview_type = data.get('interview_type', 'technical')
-        candidate_name = data.get('candidate_name', 'Candidate')
-        
-        # Validate conversation history
-        if not conversation_history:
-            return jsonify({
-                'success': False,
-                'message': 'Conversation history is required. No interview conversation found.'
-            }), 400
-        
-        # Check if conversation history has meaningful content
-        # Filter out empty or very short messages
-        meaningful_messages = [
-            msg for msg in conversation_history 
-            if isinstance(msg, dict) and 
-            msg.get('content') and 
-            len(str(msg.get('content', '')).strip()) > 5
-        ]
-        
-        if len(meaningful_messages) < 2:
-            return jsonify({
-                'success': False,
-                'message': 'Insufficient conversation data. Please complete the interview before generating feedback.'
-            }), 400
-        
-        # Check if there are user responses (candidate answers)
-        user_messages = [
-            msg for msg in meaningful_messages 
-            if msg.get('role') == 'user' and len(str(msg.get('content', '')).strip()) > 10
-        ]
-        
-        if len(user_messages) == 0:
-            return jsonify({
-                'success': False,
-                'message': 'No candidate responses found in the conversation. Please participate in the interview before generating feedback.'
-            }), 400
-        
-        # Log conversation stats
-        logger.info(f"Generating LLM feedback (rubric-based) - {len(conversation_history)} total messages, {len(user_messages)} candidate responses")
-        
-        # Rubric-based evaluation for Mock Interview
-        # Build conversation summary
-        MAX_CONVERSATION_LENGTH = 8000  # Increased for better context
-        conversation_summary = "\n\n--- INTERVIEW CONVERSATION HISTORY ---\n\n"
-        conversation_count = {'assistant': 0, 'user': 0}
-        total_length = 0
-        
-        # Process messages and limit total length to speed up LLM processing
-        for idx, msg in enumerate(conversation_history):
-            if isinstance(msg, dict) and msg.get('role') and msg.get('content'):
-                role_label = "Interviewer" if msg['role'] == 'assistant' else "Candidate"
-                content = str(msg.get('content', '')).strip()
-                if content:
-                    # Truncate very long messages to keep within limits
-                    if len(content) > 400:
-                        content = content[:400] + "... [truncated]"
-                    
-                    if len(content) > 500:
-                        content = content[:500] + "... [truncated]"
-                    
-                    message_text = f"[{idx + 1}] {role_label}: {content}\n\n"
-                    
-                    if total_length + len(message_text) > MAX_CONVERSATION_LENGTH:
-                        remaining = len(conversation_history) - idx
-                        conversation_summary += f"\n[... {remaining} more messages truncated ...]\n\n"
-                        break
-                    
-                    conversation_summary += message_text
-                    total_length += len(message_text)
-                    conversation_count[msg['role']] = conversation_count.get(msg['role'], 0) + 1
-        
-        conversation_summary += f"\n--- END OF CONVERSATION ---\n"
-        conversation_summary += f"Total Messages: {len(conversation_history)} | Interviewer Questions: {conversation_count.get('assistant', 0)} | Candidate Responses: {conversation_count.get('user', 0)}\n"
-        
-        # Build system prompt with rubric-based evaluation
-        system_prompt = f"""You are an expert interview evaluator providing comprehensive feedback for a {interview_type} interview for the position of {job_role}.
-
-You are evaluating {candidate_name}'s interview performance. Analyze the conversation naturally and provide honest, constructive feedback.
-
-EVALUATION GUIDELINES:
-1. Evaluate ONLY based on the actual conversation history provided below
-2. Be fair, objective, and evidence-based
-3. If the candidate gave minimal responses or the interview was incomplete, reflect this honestly
-4. Use the rubric below to score the interview; base scores on evidence from the conversation
-5. Focus on what actually happened in the conversation
-
-{conversation_summary}
-
-RUBRIC (0-10 each):
-- Relevance (40%): How well answers match the questions asked.
-- Completeness (25%): Coverage of key points; depth of response.
-- Clarity (20%): Communication structure, clarity, and confidence.
-- Accuracy (15%): Correctness of information and reasoning.
-
-Based on this conversation, provide comprehensive feedback in the following JSON format:
-{{
-  "overall_score": <0-100, overall performance score out of 100>,
-  "rubric_scores": {{
-    "relevance": {{ "score": <0-10>, "evidence": "specific examples from conversation" }},
-    "completeness": {{ "score": <0-10>, "evidence": "specific examples from conversation" }},
-    "clarity": {{ "score": <0-10>, "evidence": "specific examples from conversation" }},
-    "accuracy": {{ "score": <0-10>, "evidence": "specific examples from conversation" }}
-  }},
-  "key_strengths": ["strength 1", "strength 2", "strength 3", "strength 4", "strength 5"],
-  "weaknesses": ["weakness 1", "weakness 2", "weakness 3", "weakness 4"],
-  "how_to_improve": ["actionable suggestion 1", "actionable suggestion 2", "actionable suggestion 3", "actionable suggestion 4"],
-  "recommended_topics": ["topic 1", "topic 2", "topic 3", "topic 4", "topic 5"]
-}}
-
-IMPORTANT GUIDELINES:
-- overall_score: Provide a score from 0-100 (not 0-10). This represents overall interview performance.
-- rubric_scores: Provide 0-10 scores with evidence. Use these weights to compute overall_score:
-  overall_score = (relevance×0.40 + completeness×0.25 + clarity×0.20 + accuracy×0.15) × 10
-- key_strengths: List 3-5 clear strengths observed during the interview. Be specific and evidence-based.
-- weaknesses: List 2-4 clear weaknesses or areas that need improvement. Use constructive, non-judgmental language.
-- how_to_improve: Provide practical and specific steps the candidate can take to improve (e.g., topics to study, practice methods, skills to develop). Make these actionable.
-- recommended_topics: Suggest 3-5 relevant topics based on the candidate's weak areas and the job role.
-
-TONE REQUIREMENTS:
-- Use bullet points format (already in arrays)
-- Keep the tone motivating and professional
-- DO NOT use harsh or judgmental language
-- Focus on helping the candidate understand their mistakes and improve confidently
-- Be encouraging but honest
-- Base everything on actual evidence from the conversation"""
-        
-        # Build messages for LLM
-        messages = [{"role": "system", "content": system_prompt}]
-        
-        # Add conversation history to messages for context
-        for msg in conversation_history:
-            if isinstance(msg, dict) and msg.get('role') and msg.get('content'):
-                content = str(msg.get('content', '')).strip()
-                if content:
-                    messages.append({
-                        'role': msg['role'],
-                        'content': content
-                    })
-        
-        # Add final prompt
-        messages.append({
-            'role': 'user',
-            'content': f'Please provide comprehensive feedback for {candidate_name}\'s {interview_type} interview performance based on the conversation above. Be natural, honest, and constructive.'
-        })
-        
-        # Get OpenAI client and generate feedback
-        try:
-            client = get_openai_client()
-            model = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
-            
-            completion = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0.7,  # Higher temperature for more natural feedback
-                max_tokens=2500,
-                response_format={"type": "json_object"}
-            )
-            
-            feedback_json_str = completion.choices[0].message.content
-            
-            # Parse the JSON feedback
-            try:
-                feedback_data = json.loads(feedback_json_str)
-                
-                # Ensure overall_score is present and valid (0-100 scale)
-                if 'overall_score' not in feedback_data:
-                    feedback_data['overall_score'] = 50.0  # Default if not provided
-                else:
-                    score = float(feedback_data['overall_score'])
-                    # If score is 0-10, convert to 0-100 scale
-                    if score <= 10:
-                        score = score * 10
-                    feedback_data['overall_score'] = max(0, min(100, score))
-
-                # Recalculate overall score from rubric_scores if present
-                rubric_scores = feedback_data.get('rubric_scores', {})
-                if isinstance(rubric_scores, dict) and rubric_scores:
-                    weights = {
-                        'relevance': 0.40,
-                        'completeness': 0.25,
-                        'clarity': 0.20,
-                        'accuracy': 0.15
-                    }
-                    weighted_total = 0.0
-                    for key, weight in weights.items():
-                        raw_score = rubric_scores.get(key, {}).get('score', 0)
-                        try:
-                            score_value = float(raw_score)
-                        except (TypeError, ValueError):
-                            score_value = 0.0
-                        score_value = max(0.0, min(10.0, score_value))
-                        weighted_total += score_value * weight
-                    feedback_data['overall_score'] = max(0.0, min(100.0, weighted_total * 10))
-
-                # Note: guardrails removed; scoring now relies on rubric evaluation only
-                
-                # Ensure all required fields exist with defaults
-                if 'key_strengths' not in feedback_data:
-                    feedback_data['key_strengths'] = []
-                if 'weaknesses' not in feedback_data:
-                    # Fallback: use areas_for_improvement if weaknesses not present
-                    feedback_data['weaknesses'] = feedback_data.get('areas_for_improvement', [])
-                if 'how_to_improve' not in feedback_data:
-                    # Fallback: use recommendations if how_to_improve not present
-                    feedback_data['how_to_improve'] = feedback_data.get('recommendations', [])
-                if 'recommended_topics' not in feedback_data:
-                    feedback_data['recommended_topics'] = []
-                
-                # Format feedback for display (simple format, no rubrics)
-                formatted_feedback = format_simple_feedback(feedback_data, candidate_name, job_role, interview_type)
-
-                return jsonify({
-                    'success': True,
-                    'feedback': formatted_feedback,
-                    'feedback_data': feedback_data,
-                    'candidate_name': candidate_name,
-                    'job_role': job_role,
-                    'interview_type': interview_type
-                })
-                
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse JSON feedback: {str(e)}")
-                # Fallback to raw text
-                return jsonify({
-                    'success': True,
-                    'feedback': feedback_json_str,
-                    'candidate_name': candidate_name,
-                    'job_role': job_role,
-                    'interview_type': interview_type
-                })
-            
-        except Exception as e:
-            logger.error(f"OpenAI API error: {str(e)}")
-            return jsonify({
-                'success': False,
-                'message': f'Error generating feedback: {str(e)}'
-            }), 500
-            
-    except Exception as e:
-        logger.error(f"Error generating interview feedback: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'Server error: {str(e)}'
-        }), 500
-
-
-@app.route('/api/mock-interview/get-assistant-config', methods=['POST'])
-def get_assistant_config():
-    """Get assistant configuration for VAPI Web SDK (no phone number required)
-    
-    For Web SDK, we can either:
-    1. Return the assistant config directly (for inline assistant)
-    2. Create an assistant via API and return assistantId (recommended)
-    """
-    try:
-        import requests
-        
-        data = request.get_json()
-        if not data:
-            return jsonify({
-                'success': False,
-                'message': 'No data provided in request'
-            }), 400
-            
-        candidate_name = data.get('candidate_name', '')
-        job_role = data.get('job_role', '')
-        interview_type = data.get('interview_type', 'technical')
-        questions = data.get('questions', [])
-        system_message = data.get('system_message', '')
-        assistant_message = data.get('assistant_message', '')
-        
-        logger.info(f"Getting assistant config for candidate: {candidate_name}, role: {job_role}, type: {interview_type}")
-        
-        # Get VAPI API key from environment
-        vapi_api_key = os.getenv('VAPI_PRIVATE_KEY', '')
-        if not vapi_api_key:
-            return jsonify({
-                'success': False,
-                'message': 'VAPI API key not configured'
-            }), 500
-        
-        # Build questions text
-        questions_text = '\n'.join([f"{idx + 1}. [{q.get('skill', '')}] {q.get('question', '')}" 
-                                    for idx, q in enumerate(questions)])
-        
-        # Create assistant configuration for VAPI
-        # For REST API creation, we can include maxTokens
-        assistant_config_for_api = {
-            'model': {
-                'provider': 'openai',
-                'model': 'gpt-4',
-                'messages': [
-                    {
-                        'role': 'system',
-                        'content': system_message
-                    },
-                    {
-                        'role': 'assistant',
-                        'content': assistant_message + f'\n\nQuestions to ask:\n{questions_text}'
-                    }
-                ],
-                'temperature': 0.7,
-                'maxTokens': 500
-            },
-            'voice': {
-                'provider': '11labs',
-                'voiceId': '21m00Tcm4TlvDq8ikWAM'  # Professional voice
-            },
-            'firstMessage': f"Hello {candidate_name}, thank you for taking the time to interview with us today. I'm excited to learn more about your background and experience. Let's begin!"
-        }
-        
-        # For Web SDK inline config, remove unsupported fields (maxTokens not supported)
-        assistant_config_for_web = {
-            'model': {
-                'provider': 'openai',
-                'model': 'gpt-4',
-                'messages': [
-                    {
-                        'role': 'system',
-                        'content': system_message
-                    },
-                    {
-                        'role': 'assistant',
-                        'content': assistant_message + f'\n\nQuestions to ask:\n{questions_text}'
-                    }
-                ],
-                'temperature': 0.7
-            },
-            'voice': {
-                'provider': '11labs',
-                'voiceId': '21m00Tcm4TlvDq8ikWAM'  # Professional voice
-            },
-            'firstMessage': f"Hello {candidate_name}, thank you for taking the time to interview with us today. I'm excited to learn more about your background and experience. Let's begin!"
-        }
-        
-        # Create assistant via REST API first (recommended for Web SDK)
-        # This ensures the assistant is properly configured before starting the call
-        try:
-            vapi_url = 'https://api.vapi.ai/assistant'
-            headers = {
-                'Authorization': f'Bearer {vapi_api_key}',
-                'Content-Type': 'application/json'
-            }
-            
-            logger.info(f"Creating assistant via VAPI API...")
-            response = requests.post(vapi_url, json=assistant_config_for_api, headers=headers, timeout=30)
-            
-            if response.status_code in [200, 201]:
-                assistant_data = response.json()
-                assistant_id = assistant_data.get('id')
-                logger.info(f"Assistant created successfully with ID: {assistant_id}")
-                
-                return jsonify({
-                    'success': True,
-                    'assistantId': assistant_id,
-                    'assistant': assistant_config_for_web  # Return Web SDK compatible config as fallback
-                })
-            else:
-                error_text = response.text
-                error_details = {}
-                try:
-                    error_json = response.json()
-                    error_text = error_json.get('message', error_json.get('error', error_text))
-                    error_details = error_json
-                except ValueError:
-                    pass
-                
-                # Check for credit-related errors
-                error_lower = error_text.lower() if error_text else ''
-                credit_keywords = ['credit', 'balance', 'insufficient', 'payment', 'subscription', 'quota', 'limit exceeded']
-                is_credit_error = any(keyword in error_lower for keyword in credit_keywords)
-                
-                logger.error(f"Failed to create assistant: {response.status_code} - {error_text}")
-                logger.error(f"Full error response: {error_details if error_details else response.text}")
-                logger.error(f"Assistant config sent: {json.dumps(assistant_config_for_api, indent=2)}")
-                
-                if is_credit_error:
-                    logger.error("⚠️ CREDIT ERROR DETECTED - User may have insufficient VAPI credits")
-                    return jsonify({
-                        'success': False,
-                        'message': f'VAPI credits issue detected: {error_text}. Please check your VAPI account balance at https://dashboard.vapi.ai',
-                        'credit_error': True,
-                        'error_details': error_details if error_details else None
-                    }), 402  # Payment Required status code
-                
-                # Fallback: return Web SDK compatible config directly
-                logger.warning("Falling back to inline assistant config (Web SDK format)")
-                return jsonify({
-                    'success': True,
-                    'assistant': assistant_config_for_web,
-                    'warning': f'Assistant creation failed ({response.status_code}): {error_text}. Using inline config.'
-                })
-        except Exception as api_error:
-            logger.error(f"Error creating assistant via API: {str(api_error)}")
-            # Fallback: return Web SDK compatible config directly
-            logger.warning("Falling back to inline assistant config (Web SDK format)")
-            return jsonify({
-                'success': True,
-                'assistant': assistant_config_for_web
-            })
-        
-    except Exception as e:
-        error_traceback = traceback.format_exc()
-        logger.error(f"Error getting assistant config: {str(e)}\n{error_traceback}")
-        return jsonify({
-            'success': False,
-            'message': f'Server error: {str(e)}'
-        }), 500
-
-@app.route('/api/mock-interview/start-call', methods=['POST'])
-def start_vapi_call():
-    """Start a VAPI call for mock interview
-    
-    NOTE: This endpoint uses VAPI's REST API. You may need to adjust:
-    1. API endpoint URLs based on VAPI's current API structure
-    2. Request payload structure
-    3. Response parsing
-    
-    Set VAPI_PRIVATE_KEY in your .env file.
-    See VAPI_SETUP.md for configuration instructions.
-    """
-    try:
-        import requests
-        
-        data = request.get_json()
-        if not data:
-            return jsonify({
-                'success': False,
-                'message': 'No data provided in request'
-            }), 400
-            
-        candidate_name = data.get('candidate_name', '')
-        job_role = data.get('job_role', '')
-        interview_type = data.get('interview_type', 'technical')
-        questions = data.get('questions', [])
-        system_message = data.get('system_message', '')
-        assistant_message = data.get('assistant_message', '')
-        phone_number = data.get('phone_number', '')  # Optional: for phone calls
-        
-        # Get VAPI API key from environment
-        vapi_api_key = os.getenv('VAPI_PRIVATE_KEY', '')
-        if not vapi_api_key:
-            logger.error("VAPI_PRIVATE_KEY not found in environment variables")
-            return jsonify({
-                'success': False,
-                'message': 'VAPI API key not configured. Please set VAPI_PRIVATE_KEY in your .env file. See VAPI_SETUP.md for instructions.'
-            }), 500
-        
-        logger.info(f"Starting VAPI call for candidate: {candidate_name}, role: {job_role}, type: {interview_type}")
-        
-        # Build questions text
-        questions_text = '\n'.join([f"{idx + 1}. [{q.get('skill', '')}] {q.get('question', '')}" 
-                                    for idx, q in enumerate(questions)])
-        
-        # Create assistant configuration
-        assistant_config = {
-            'model': {
-                'provider': 'openai',
-                'model': 'gpt-4',
-                'messages': [
-                    {
-                        'role': 'system',
-                        'content': system_message
-                    },
-                    {
-                        'role': 'assistant',
-                        'content': assistant_message + f'\n\nQuestions to ask:\n{questions_text}'
-                    }
-                ],
-                'temperature': 0.7,
-                'maxTokens': 500
-            },
-            'voice': {
-                'provider': '11labs',
-                'voiceId': '21m00Tcm4TlvDq8ikWAM'  # Professional voice
-            },
-            'firstMessage': f"Hello {candidate_name}, thank you for taking the time to interview with us today. I'm excited to learn more about your background and experience. Let's begin!"
-        }
-        
-        # Create phone call via VAPI API
-        vapi_url = 'https://api.vapi.ai/call'
-        headers = {
-            'Authorization': f'Bearer {vapi_api_key}',
-            'Content-Type': 'application/json'
-        }
-        
-        # Build payload - VAPI requires either phoneNumberId or phoneNumber
-        # Based on error: "Need Either `phoneNumberId` Or `phoneNumber`"
-        payload = {
-            'assistant': assistant_config
-        }
-        
-        # Get phoneNumberId from environment (for web calls) or use provided phone number
-        vapi_phone_number_id = os.getenv('VAPI_PHONE_NUMBER_ID', '')
-        
-        if phone_number:
-            # Use provided phone number (for phone calls)
-            payload['customer'] = {
-                'number': phone_number
-            }
-            logger.info(f"Initiating phone call to: {phone_number}")
-        elif vapi_phone_number_id:
-            # Use phoneNumberId from environment (for web calls)
-            # VAPI accepts phoneNumberId in customer object
-            payload['customer'] = {
-                'phoneNumberId': vapi_phone_number_id
-            }
-            logger.info(f"Using VAPI phone number ID: {vapi_phone_number_id}")
-        else:
-            # VAPI requires either phoneNumberId or phoneNumber
-            # For web calls, you need to configure a phoneNumberId in VAPI dashboard
-            # and add it to .env as VAPI_PHONE_NUMBER_ID
-            logger.error("VAPI requires phoneNumberId or phoneNumber. Neither provided.")
-            return jsonify({
-                'success': False,
-                'message': 'VAPI requires either a phone number or phoneNumberId. For web calls, configure VAPI_PHONE_NUMBER_ID in your .env file. See VAPI_SETUP.md for instructions.'
-            }), 400
-        
-        logger.info(f"Making request to VAPI API: {vapi_url}")
-        logger.debug(f"Payload structure: assistant configured with {len(questions)} questions")
-        
-        # For browser-based calls, VAPI might use a different endpoint
-        # This is a placeholder - adjust based on VAPI documentation
-        try:
-            response = requests.post(vapi_url, json=payload, headers=headers, timeout=30)
-        except requests.exceptions.Timeout:
-            logger.error("VAPI API request timed out")
-            return jsonify({
-                'success': False,
-                'message': 'Request to VAPI API timed out. Please check your internet connection and try again.'
-            }), 500
-        except requests.exceptions.ConnectionError as e:
-            logger.error(f"VAPI API connection error: {str(e)}")
-            return jsonify({
-                'success': False,
-                'message': f'Failed to connect to VAPI API: {str(e)}. Please check your internet connection.'
-            }), 500
-        except requests.exceptions.RequestException as e:
-            logger.error(f"VAPI API request error: {str(e)}")
-            return jsonify({
-                'success': False,
-                'message': f'Error making request to VAPI API: {str(e)}'
-            }), 500
-        
-        if response.status_code == 200 or response.status_code == 201:
-            try:
-                call_data = response.json()
-                return jsonify({
-                    'success': True,
-                    'call_id': call_data.get('id', ''),
-                    'message': 'Call started successfully'
-                })
-            except ValueError:
-                logger.error(f"VAPI API returned invalid JSON: {response.text}")
-                return jsonify({
-                    'success': False,
-                    'message': 'VAPI API returned invalid response format'
-                }), 500
-        else:
-            error_text = response.text
-            error_details = {}
-            try:
-                error_json = response.json()
-                error_text = error_json.get('message', error_json.get('error', error_text))
-                error_details = error_json
-            except ValueError:
-                pass
-            logger.error(f"VAPI API error: {response.status_code} - {error_text}")
-            logger.error(f"Full VAPI response: {error_details if error_details else response.text}")
-            return jsonify({
-                'success': False,
-                'message': f'VAPI API error (status {response.status_code}): {error_text}',
-                'details': error_details if error_details else None
-            }), 500
-            
-    except Exception as e:
-        error_traceback = traceback.format_exc()
-        logger.error(f"Error starting VAPI call: {str(e)}\n{error_traceback}")
-        return jsonify({
-            'success': False,
-            'message': f'Server error: {str(e)}'
-        }), 500
-
-@app.route('/api/mock-interview/call-status/<call_id>', methods=['GET'])
-def get_call_status(call_id):
-    """Get status and conversation history for a VAPI call"""
-    try:
-        import requests
-        
-        vapi_api_key = os.getenv('VAPI_PRIVATE_KEY', '')
-        if not vapi_api_key:
-            return jsonify({
-                'success': False,
-                'message': 'VAPI API key not configured'
-            }), 500
-        
-        # Get call status from VAPI
-        vapi_url = f'https://api.vapi.ai/call/{call_id}'
-        headers = {
-            'Authorization': f'Bearer {vapi_api_key}',
-            'Content-Type': 'application/json'
-        }
-        
-        response = requests.get(vapi_url, headers=headers)
-        
-        if response.status_code == 200:
-            call_data = response.json()
-            
-            # Extract conversation history from call data
-            conversation_history = []
-            # VAPI stores messages in a specific format - adjust based on actual API response
-            messages = call_data.get('messages', [])
-            for msg in messages:
-                if msg.get('role') and msg.get('content'):
-                    conversation_history.append({
-                        'role': msg['role'],
-                        'content': msg['content']
-                    })
-            
-            return jsonify({
-                'success': True,
-                'status': call_data.get('status', 'unknown'),
-                'conversation_history': conversation_history
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'message': 'Failed to get call status'
-            }), 500
-            
-    except Exception as e:
-        logger.error(f"Error getting call status: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'Server error: {str(e)}'
-        }), 500
-
-@app.route('/api/mock-interview/end-call/<call_id>', methods=['POST'])
-def end_vapi_call(call_id):
-    """End a VAPI call"""
-    try:
-        import requests
-        
-        vapi_api_key = os.getenv('VAPI_PRIVATE_KEY', '')
-        if not vapi_api_key:
-            return jsonify({
-                'success': False,
-                'message': 'VAPI API key not configured'
-            }), 500
-        
-        # End call via VAPI API
-        vapi_url = f'https://api.vapi.ai/call/{call_id}/end'
-        headers = {
-            'Authorization': f'Bearer {vapi_api_key}',
-            'Content-Type': 'application/json'
-        }
-        
-        response = requests.post(vapi_url, headers=headers)
-        
-        if response.status_code == 200:
-            return jsonify({
-                'success': True,
-                'message': 'Call ended successfully'
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'message': 'Failed to end call'
-            }), 500
-            
-    except Exception as e:
-        logger.error(f"Error ending call: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'Server error: {str(e)}'
-        }), 500
-
-@app.route('/api/mock-interview/vapi-webhook', methods=['POST'])
-def vapi_webhook():
-    """Handle VAPI webhook events"""
-    try:
-        data = request.get_json()
-        event_type = data.get('type', '')
-        
-        logger.info(f"VAPI webhook received: {event_type}")
-        
-        # Handle different VAPI event types
-        if event_type == 'function-call':
-            # Handle function calls from VAPI
-            function_name = data.get('functionCall', {}).get('name', '')
-            parameters = data.get('functionCall', {}).get('parameters', {})
-            
-            if function_name == 'get_next_question':
-                # Get next question from database
-                job_role = parameters.get('job_role', '')
-                interview_type = parameters.get('interview_type', 'technical')
-                asked_questions = parameters.get('asked_questions', [])
-                
-                # Fetch questions
-                skills_list = resolve_mock_interview_skills(job_role, parameters.get('skills'))
-                if not skills_list:
-                    return jsonify({
-                        'result': 'No more questions available'
-                    })
-                
-                # Get all available questions
-                all_questions = []
-                for skill in skills_list:
-                    # Get table name based on interview type (dictionary-based, no if-else)
-                    table_name = get_question_table_name(interview_type, skill)
-                    questions, error = get_questions_from_table(table_name)
-                    if not error and questions:
-                        for q in questions:
-                            all_questions.append({
-                                'question': q,
-                                'skill': skill
-                            })
-                
-                # Find a question that hasn't been asked
-                asked_texts = [q.get('question', '') if isinstance(q, dict) else str(q) for q in asked_questions]
-                for q_obj in all_questions:
-                    if q_obj['question'] not in asked_texts:
-                        return jsonify({
-                            'result': q_obj['question']
-                        })
-                
-                return jsonify({
-                    'result': 'No more questions available'
-                })
-        
-        # Return success for other event types
-        return jsonify({
-            'success': True,
-            'message': 'Webhook processed'
-        })
-        
-    except Exception as e:
-        logger.error(f"VAPI webhook error: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'Error processing webhook: {str(e)}'
-        }), 500
 
 def build_context_info(context):
     """Build context information string from context dict."""
@@ -1882,6 +1148,254 @@ def is_improvement_question(message):
         'tips', 'guidance', 'recommend', 'kese improve', 'kese behtar'
     ]
     return any(keyword in text for keyword in improve_keywords)
+
+def normalize_text(text):
+    """Normalize text for fuzzy matching."""
+    if not text:
+        return ''
+    return re.sub(r'[^a-z0-9\s]+', ' ', text.lower()).strip()
+
+def semantic_contains(text, keywords, threshold=0.87):
+    """Fuzzy-match keywords in text to reduce strict exact matching."""
+    if not text:
+        return False
+    normalized = normalize_text(text)
+    if not normalized:
+        return False
+    # Direct substring match first (fast path)
+    for kw in keywords:
+        kw_norm = normalize_text(kw)
+        if kw_norm and kw_norm in normalized:
+            return True
+    tokens = normalized.split()
+    for kw in keywords:
+        kw_norm = normalize_text(kw)
+        if not kw_norm:
+            continue
+        if ' ' in kw_norm:
+            # Multi-word keyword: match all parts fuzzily or overall similarity
+            parts = kw_norm.split()
+            if all(
+                any(difflib.SequenceMatcher(None, part, tok).ratio() >= threshold for tok in tokens)
+                for part in parts
+            ):
+                return True
+            if difflib.SequenceMatcher(None, kw_norm, normalized).ratio() >= threshold:
+                return True
+        else:
+            for tok in tokens:
+                if difflib.SequenceMatcher(None, kw_norm, tok).ratio() >= threshold:
+                    return True
+    return False
+
+def get_db_question_keywords():
+    """Extract keywords from question tables in the database (cached)."""
+    now = datetime.utcnow()
+    cached = _DB_KEYWORDS_CACHE.get("keywords")
+    updated_at = _DB_KEYWORDS_CACHE.get("updated_at")
+    if cached and updated_at and (now - updated_at).total_seconds() < _DB_KEYWORDS_TTL_SECONDS:
+        return cached
+
+    keywords = set()
+    try:
+        conn = get_pg_connection()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND LOWER(table_name) LIKE '%question%'
+                """
+            )
+            tables = [row[0] for row in cursor.fetchall() if row and row[0]]
+
+            for table_name in tables:
+                cursor.execute(
+                    """
+                    SELECT column_name, data_type
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = %s
+                    """,
+                    (table_name,)
+                )
+                columns = cursor.fetchall() or []
+                text_columns = [
+                    col for col, dtype in columns
+                    if dtype in ('text', 'character varying', 'varchar')
+                ]
+                # Prefer common question column names
+                preferred = None
+                for cand in ('question', 'questions', 'question_text', 'questiontext'):
+                    if cand in text_columns:
+                        preferred = cand
+                        break
+                if not preferred:
+                    continue
+
+                cursor.execute(
+                    sql.SQL("SELECT {col} FROM {table} LIMIT 100").format(
+                        col=sql.Identifier(preferred),
+                        table=sql.Identifier(table_name)
+                    )
+                )
+                rows = cursor.fetchall() or []
+                for (text,) in rows:
+                    if not text:
+                        continue
+                    tokens = re.findall(r"[a-zA-Z][a-zA-Z0-9\-\+]{2,}", str(text).lower())
+                    for token in tokens:
+                        if token in _KEYWORD_STOPWORDS:
+                            continue
+                        keywords.add(token)
+                        if len(keywords) >= 400:
+                            break
+                    if len(keywords) >= 400:
+                        break
+                if len(keywords) >= 400:
+                    break
+        conn.close()
+    except Exception as e:
+        logger.warning(f"Failed to load question keywords from DB: {e}")
+
+    keyword_list = sorted(keywords)
+    _DB_KEYWORDS_CACHE["keywords"] = keyword_list
+    _DB_KEYWORDS_CACHE["updated_at"] = now
+    return keyword_list
+
+def is_generic_definition_request(message):
+    """Detect generic 'what is this/that' requests that need context."""
+    if not message:
+        return False
+    text = message.lower().strip()
+    patterns = [
+        r'^(what is this|what is that|what is it)\??$',
+        r'^(what\'?s this|what\'?s that|what\'?s it)\??$',
+        r'^(define this|define that|define it)\??$',
+        r'^(describe this|describe that|describe it)\??$',
+        r'^(explain this|explain that|explain it)\??$',
+        r'^(meaning of this|meaning of that|meaning of it)\??$',
+        r'^(tell me about this|tell me about that|tell me about it)\??$',
+        r'^(what is|what\'?s|define|describe|explain)\s+(this|that|it)\??$',
+        r'^(what is|what\'?s|define|describe|explain)\s*$',
+    ]
+    return any(re.match(p, text) for p in patterns)
+
+def build_generic_definition_context_message(context):
+    """Build a concrete prompt from context for generic definition requests."""
+    current_question = (context or {}).get('currentQuestion')
+    skill = (context or {}).get('skill')
+    role = (context or {}).get('role')
+    if current_question:
+        return f"Explain this interview question clearly: {current_question}"
+    if skill:
+        return f"Explain the concept: {skill}"
+    if role:
+        return f"Explain key concepts for the role: {role}"
+    return ""
+
+AI_SKILL_FALLBACKS = [
+    {
+        "keywords": ["machine learning", "ml", "machine-learning"],
+        "response": (
+            "Machine learning is a field where models learn patterns from data to make "
+            "predictions or decisions without being explicitly programmed. In interviews, "
+            "focus on data, features, training vs. inference, evaluation metrics, and "
+            "bias/variance tradeoffs."
+        ),
+    },
+    {
+        "keywords": ["deep learning", "dl", "deep-learning"],
+        "response": (
+            "Deep learning is a subset of machine learning that uses multi-layer neural "
+            "networks to learn representations from data. Be ready to explain architectures, "
+            "backpropagation, overfitting/regularization, and compute requirements."
+        ),
+    },
+    {
+        "keywords": ["data science", "datascience", "data-science"],
+        "response": (
+            "Data science combines statistics, programming, and domain knowledge to extract "
+            "insights from data. Interview focus: data cleaning, EDA, feature engineering, "
+            "modeling, and communicating results."
+        ),
+    },
+    {
+        "keywords": ["python"],
+        "response": (
+            "Python is a core interview skill for scripting, data work, and ML. Expect "
+            "questions on data structures, complexity, and libraries like pandas, numpy, "
+            "and scikit-learn."
+        ),
+    },
+    {
+        "keywords": ["sql"],
+        "response": (
+            "SQL is used to query and transform data. Interview focus: joins, aggregations, "
+            "window functions, indexing basics, and query optimization."
+        ),
+    },
+    {
+        "keywords": ["docker"],
+        "response": (
+            "Docker is a containerization tool for packaging apps with dependencies. "
+            "Be ready to explain images vs. containers, Dockerfile basics, and use cases."
+        ),
+    },
+    {
+        "keywords": ["aws", "amazon web services"],
+        "response": (
+            "AWS is a cloud platform offering services like compute, storage, databases, and "
+            "serverless. Interview focus: core services (EC2, S3, RDS, Lambda), security, "
+            "scalability, and cost tradeoffs."
+        ),
+    },
+    {
+        "keywords": ["kubernetes", "k8s"],
+        "response": (
+            "Kubernetes orchestrates containers at scale. Key interview topics: pods, "
+            "deployments, services, config/secrets, and scaling."
+        ),
+    },
+    {
+        "keywords": ["lambda", "aws lambda"],
+        "response": (
+            "AWS Lambda runs serverless functions on demand. Interview focus: event-driven "
+            "triggers, cold starts, execution limits, and use cases."
+        ),
+    },
+    {
+        "keywords": ["tensorflow", "tensor flow"],
+        "response": (
+            "TensorFlow is a deep learning framework. Be ready to discuss computation graphs, "
+            "model training loops, and deployment options."
+        ),
+    },
+    {
+        "keywords": ["pytorch", "torch"],
+        "response": (
+            "PyTorch is a deep learning framework known for dynamic graphs. Interview focus: "
+            "tensors, autograd, model training, and debugging."
+        ),
+    },
+    {
+        "keywords": ["nlp", "natural language processing"],
+        "response": (
+            "NLP deals with text and language data. Interview topics: tokenization, embeddings, "
+            "transformers, evaluation metrics, and common tasks like classification or QA."
+        ),
+    },
+]
+
+def build_ai_skill_fallback(user_message_lower):
+    """Return a concise fallback answer for common AI/ML/data/infra skills."""
+    for entry in AI_SKILL_FALLBACKS:
+        if semantic_contains(user_message_lower, entry["keywords"], threshold=0.84):
+            return entry["response"]
+    return (
+        "Here is a concise interview-prep overview of that AI/ML topic. If you want depth, "
+        "tell me the specific subtopic you want to focus on."
+    )
 
 def build_rubric_response(interview_type, include_improvement=False, include_all=False):
     """Build a direct rubric-based response without LLM."""
@@ -1955,6 +1469,34 @@ def build_conversation_history(conversation_history):
                 "content": msg['content']
             })
     return history_messages
+
+def count_history_roles(conversation_history):
+    """Count user/assistant roles in conversation history."""
+    counts = {"user": 0, "assistant": 0}
+    for msg in conversation_history or []:
+        role = msg.get('role')
+        if role in counts:
+            counts[role] += 1
+    return counts
+
+def get_recent_dialogue(conversation_history, max_messages=6):
+    """Get the most recent user/assistant messages for follow-up context."""
+    dialogue = []
+    for msg in reversed(conversation_history or []):
+        role = msg.get('role')
+        content = msg.get('content')
+        if role in ('user', 'assistant') and content:
+            dialogue.append(f"{role}: {content}")
+        if len(dialogue) >= max_messages:
+            break
+    return list(reversed(dialogue))
+
+def get_last_assistant_message(conversation_history):
+    """Fetch the latest assistant message from conversation history."""
+    for msg in reversed(conversation_history or []):
+        if msg.get('role') == 'assistant' and msg.get('content'):
+            return msg['content']
+    return ''
 
 def is_feedback_question(message):
     """Detect if the user is asking about received feedback."""
@@ -2134,7 +1676,8 @@ def chatbot():
     
     try:
         data = request.json
-        user_message = data.get('message', '').strip()
+        raw_user_message = data.get('message', '').strip()
+        user_message = raw_user_message
         context = data.get('context', {})
         conversation_history = data.get('conversationHistory', [])
 
@@ -2142,14 +1685,45 @@ def chatbot():
         logger.info(f"Received chatbot request - message: {user_message[:50] if user_message else 'None'}")
 
         # Validate input
-        if not user_message:
+        if not raw_user_message:
             return jsonify({
                 'success': False,
                 'message': 'Message is required'
             }), 400
 
+        last_assistant = get_last_assistant_message(conversation_history)
+        role_counts = count_history_roles(conversation_history)
+        has_prior_exchange = role_counts["assistant"] >= 1 and role_counts["user"] >= 1
+        is_follow_up = bool(last_assistant and has_prior_exchange)
+
+        # If this is a follow-up, enrich the prompt with last assistant reply
+        if is_follow_up:
+            recent_dialogue = "\n".join(get_recent_dialogue(conversation_history, max_messages=6))
+            trimmed = last_assistant[:1200]
+            user_message = (
+                "Follow-up question based on the recent assistant response(s).\n"
+                "Recent dialogue:\n"
+                f"{recent_dialogue}\n\n"
+                "Most recent assistant answer:\n"
+                f"{trimmed}\n\n"
+                f"User follow-up: {raw_user_message}"
+            )
+
         # Pre-check for obvious off-topic questions
-        user_message_lower = user_message.lower()
+        user_message_lower = raw_user_message.lower()
+
+        # Handle generic definition requests like "what is this"
+        if is_generic_definition_request(raw_user_message):
+            contextual_prompt = build_generic_definition_context_message(context)
+            if contextual_prompt:
+                raw_user_message = contextual_prompt
+                user_message = contextual_prompt
+                user_message_lower = raw_user_message.lower()
+            else:
+                return jsonify({
+                    'success': True,
+                    'response': "Please mention the exact topic you want defined (e.g., 'what is machine learning?')."
+                })
         off_topic_keywords = [
             'movie', 'movies', 'film', 'cinema', 'actor', 'actress', 'celebrity',
             'cook', 'cooking', 'recipe', 'food', 'restaurant', 'dish',
@@ -2171,6 +1745,35 @@ def chatbot():
             'interview preparation question', 'help me understand', 'how to answer'
         ]
 
+        # Always-allowed AI/ML/data/infra skills (common variants included)
+        ai_skill_keywords = [
+            'python', 'sql', 'docker', 'kubernetes', 'k8s', 'lambda', 'aws',
+            'machine learning', 'ml', 'deep learning', 'dl',
+            'data science', 'datascience', 'data-science',
+            'tensorflow', 'tensor flow', 'pytorch', 'torch',
+            'nlp', 'natural language processing',
+            'ai', 'artificial intelligence',
+            'mlops', 'model training', 'training data', 'neural network'
+        ]
+
+        # Broader technical/conceptual keywords that should always get a response
+        technical_keywords = [
+            'algorithm', 'data structure', 'complexity', 'big o', 'time complexity',
+            'space complexity', 'hash', 'hashing', 'tree', 'graph', 'stack', 'queue',
+            'array', 'linked list', 'binary search', 'sorting', 'dynamic programming',
+            'recursion', 'oop', 'object oriented', 'design pattern', 'system design',
+            'api', 'rest', 'graphql', 'database', 'sql', 'nosql', 'index',
+            'network', 'tcp', 'udp', 'http', 'https', 'latency', 'throughput',
+            'distributed system', 'microservices', 'cache', 'redis',
+            'cloud', 'aws', 'gcp', 'azure', 'container', 'docker', 'kubernetes',
+            'linux', 'git', 'ci/cd', 'pipeline', 'security', 'encryption',
+            'machine learning', 'deep learning', 'neural network', 'model',
+            'training', 'inference', 'overfitting', 'underfitting', 'bias', 'variance',
+            'statistics', 'probability', 'linear algebra', 'calculus'
+        ]
+        # Add keywords dynamically from question tables (cached)
+        technical_keywords.extend(get_db_question_keywords())
+
         # Include platform-specific roles/skills and interview types as valid context
         platform_keywords = []
         for role, skills in PLATFORM_SKILLS.items():
@@ -2184,25 +1787,40 @@ def chatbot():
         is_ask_ai_question = 'interview preparation question' in user_message_lower or 'help me understand and answer this interview question' in user_message_lower
         
         has_off_topic = any(keyword in user_message_lower for keyword in off_topic_keywords)
+        has_ai_skill_context = semantic_contains(raw_user_message, ai_skill_keywords)
+        has_technical_context = semantic_contains(raw_user_message, technical_keywords)
+        has_platform_skill_match = semantic_contains(raw_user_message, platform_keywords)
+        has_db_keyword_match = semantic_contains(raw_user_message, get_db_question_keywords())
+
+        # Allow response if any keyword matches platform skills or DB questions
+        has_db_or_skill_match = has_platform_skill_match or has_db_keyword_match
+
         has_interview_context = (
-            any(keyword in user_message_lower for keyword in interview_keywords)
-            or any(keyword in user_message_lower for keyword in platform_keywords)
+            semantic_contains(raw_user_message, interview_keywords)
             or any(keyword in user_message_lower for keyword in interview_type_keywords)
             or is_ask_ai_question
+            or has_ai_skill_context
+            or has_technical_context
+            or has_db_or_skill_match
+            or is_follow_up
         )
         
+        redirect_message = (
+            "I'm specifically designed to help with interview preparation only. I can assist you with technical interview questions, "
+            "behavioral interview tips, coding problems, interview strategies, and career preparation. How can I help you prepare for your interview?"
+        )
+
         # If has off-topic keywords but no interview context, redirect immediately
         # BUT skip redirect if this is an "Ask AI" question
         if has_off_topic and not has_interview_context and not is_ask_ai_question:
-            redirect_message = "I'm specifically designed to help with interview preparation only. I can assist you with technical interview questions, behavioral interview tips, coding problems, interview strategies, and career preparation. How can I help you prepare for your interview?"
             return jsonify({
                 'success': True,
                 'response': redirect_message
             })
 
         # Feedback-specific handling: require the actual feedback text
-        if is_feedback_question(user_message):
-            feedback_text = extract_feedback_text(user_message)
+        if is_feedback_question(raw_user_message):
+            feedback_text = extract_feedback_text(raw_user_message)
             if not feedback_text:
                 return jsonify({
                     'success': True,
@@ -2211,7 +1829,7 @@ def chatbot():
 
         # If user asks about rubric basis and mentions a specific interview type,
         # ensure the rubric context matches that type.
-        if is_rubric_question(user_message):
+        if is_rubric_question(raw_user_message):
             explicit_type = None
             if is_behavioral_mention(user_message_lower):
                 explicit_type = 'behavioral'
@@ -2223,13 +1841,13 @@ def chatbot():
             if explicit_type:
                 context = {**context, 'interviewType': explicit_type}
                 rubric_reply = build_rubric_response(
-                    context.get('interviewType'),
-                    include_improvement=is_improvement_question(user_message)
+                context.get('interviewType'),
+                include_improvement=is_improvement_question(raw_user_message)
                 )
             else:
                 rubric_reply = build_rubric_response(
                     None,
-                    include_improvement=is_improvement_question(user_message),
+                    include_improvement=is_improvement_question(raw_user_message),
                     include_all=True
                 )
             return jsonify({
@@ -2238,69 +1856,44 @@ def chatbot():
             })
 
         # Build system prompt
-        system_prompt = """You are an Interview Preparation Assistant EXCLUSIVELY designed for interview preparation. You MUST NOT answer any questions outside of interview preparation topics.
+        system_prompt = """You are an Interview Preparation Assistant EXCLUSIVELY designed for interview preparation. You MUST NOT answer any questions outside interview preparation.
 
-STRICT RULES - YOU MUST FOLLOW THESE:
-1. ONLY answer questions about:
-   - Technical interview preparation (coding, algorithms, data structures, system design)
-   - Behavioral interview preparation (STAR method, common questions, examples)
-   - Interview strategies and tips
-   - Career preparation related to interviews
+STRICT RULES (FOLLOW EXACTLY):
+1. ALWAYS ANSWER questions about:
+   - Technical interview prep (coding, algorithms, data structures, system design)
+   - Behavioral interview prep (STAR method, common questions, examples)
+   - Interview strategy, tips, and career prep related to interviews
    - Coding problems and solutions for interview practice
-   - Interview-related concepts and explanations
-   - Platform interview types, job roles, and skills listed in "Platform Skills"
-   - If the question is about platform skills/roles/interview types or interview feedback, answer it even if "interview" is not mentioned.
+   - Interview feedback and rubric-based evaluation
+   - Core AI/ML and data/infra topics commonly asked in interviews
+   - Platform interview types, roles, and skills listed in "Platform Skills"
 
-2. DO NOT answer questions about:
+2. ALWAYS ANSWER questions about these skills (even if "interview" is NOT mentioned):
+   Python, SQL, Docker, Kubernetes, AWS/Lambda, Machine Learning, Deep Learning,
+   Data Science, TensorFlow, PyTorch, NLP
+
+3. NEVER ANSWER questions about (redirect immediately):
    - Movies, entertainment, TV shows, celebrities
-   - General knowledge, history, geography, science (unless directly related to interview prep)
    - Cooking, recipes, food
-   - Travel, vacation planning
-   - Personal relationships, dating advice
-   - Current events, news, politics (unless related to job market/interviews)
-   - Sports, games, hobbies (unless related to interview preparation)
-   - Any topic NOT directly related to interview preparation
+   - Travel, vacation, hotels
+   - Sports, games, hobbies
+   - Dating, relationships, personal advice
+   - Politics, news, current events
+   - General knowledge not tied to interview prep
 
-3. When user asks off-topic questions, you MUST:
-   - DO NOT provide any answer or information about the off-topic question
-   - IMMEDIATELY redirect with this EXACT response: "I'm specifically designed to help with interview preparation only. I can assist you with technical interview questions, behavioral interview tips, coding problems, interview strategies, and career preparation. How can I help you prepare for your interview?"
-   - DO NOT explain why you can't answer, just redirect politely
+4. Off-topic redirect response (use EXACTLY):
+   "I'm specifically designed to help with interview preparation only. I can assist you with technical interview questions, behavioral interview tips, coding problems, interview strategies, and career preparation. How can I help you prepare for your interview?"
 
-4. Examples of what to REJECT:
-   - "Tell me about movies" → Redirect immediately
-   - "What's the weather?" → Redirect immediately
-   - "Explain quantum physics" → Redirect (unless asked in context of interview prep)
-   - "How to cook pasta?" → Redirect immediately
-   - "Best travel destinations" → Redirect immediately
+5. Follow-up questions:
+   - If the user asks a follow-up about your previous response, answer directly and stay on-topic.
+   - If the follow-up is ambiguous, ask a short clarification only for that part.
+   - If multiple questions are asked, answer each in order.
 
-5. Examples of what to ACCEPT:
-   - "How to answer 'Tell me about yourself' in interview?" → Answer
-   - "Explain binary search algorithm" → Answer (interview prep context)
-   - "STAR method examples" → Answer
-   - "Coding interview tips" → Answer
-   - "System design interview questions" → Answer
+6. Feedback & Rubrics:
+   - If user asks about feedback, base the response ONLY on feedback text in history.
+   - If user asks how evaluation works, use "Rubric Basis" from context and tie improvements to it.
 
-6. Feedback questions (Skill Prep or mock interview):
-   - If the user asks any question about feedback they received, you MUST answer clearly and directly.
-   - Base your response ONLY on the specific feedback provided in the conversation history or the user's message.
-   - Do NOT add generic or unrelated advice.
-   - Explain what the feedback means, and guide what it implies for their performance or improvement.
-   - If the specific feedback is not present, ask the user to share it. Do NOT guess.
-
-7. Rubric-based evaluation questions:
-   - If the user asks how Skill Prep or mock interview evaluation works, clearly explain the rubric basis.
-   - Use the "Rubric Basis" provided in the context info to list the exact criteria and weights.
-   - When asked how to improve, tie suggestions back to these rubric criteria.
-   - Keep the response specific to the user's interview type and skill context.
-8. Platform interview tips:
-   - If the user asks for interview tips or guidance, keep it within the platform skills listed in "Platform Skills".
-   - If a tip request is outside those skills or not interview-related, redirect with the standard off-topic message.
-
-Your role is to provide clear, helpful, and actionable guidance ONLY on interview preparation topics.
-
-If the user asks about a specific question they're practicing, provide targeted help for that question.
-
-CRITICAL: Never provide answers to off-topic questions. Always redirect immediately with the standard message above."""
+CRITICAL: Never answer off-topic questions. Always redirect immediately with the standard message above."""
 
         # Build messages
         context_info = build_context_info(context)
@@ -2329,6 +1922,19 @@ CRITICAL: Never provide answers to off-topic questions. Always redirect immediat
             
             logger.info(f"OpenAI API response received successfully")
             assistant_response = completion.choices[0].message.content
+            logger.info(
+                "Chatbot flags - off_topic=%s, interview_context=%s, ai_skill=%s, technical=%s, follow_up=%s",
+                has_off_topic, has_interview_context, has_ai_skill_context, has_technical_context, is_follow_up
+            )
+            logger.info(
+                "Chatbot response preview: %s",
+                (assistant_response or '')[:200].replace('\n', ' ')
+            )
+            if not assistant_response or not assistant_response.strip():
+                if has_ai_skill_context or has_technical_context:
+                    assistant_response = build_ai_skill_fallback(user_message_lower)
+            elif (has_ai_skill_context or has_technical_context) and assistant_response.strip() == redirect_message:
+                assistant_response = build_ai_skill_fallback(user_message_lower)
 
             return jsonify({
                 'success': True,

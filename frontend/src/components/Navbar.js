@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Menu, X, Brain, User, BookOpen, LogOut, Settings, Video, BarChart3 } from 'lucide-react';
+import { Menu, X, Brain, User, BookOpen, LogOut, Settings, BarChart3, Video } from 'lucide-react';
 import './Navbar.css';
 
 const Navbar = () => {

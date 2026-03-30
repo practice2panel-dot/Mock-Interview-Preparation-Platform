@@ -14,12 +14,6 @@ The backend server needs to be restarted for CORS changes to take effect.
    python start_server.py
    ```
 
-   Or if you're using the project root:
-   ```bash
-   cd "E:\FYP\Interview_Project_without mock interview\Backend"
-   python start_server.py
-   ```
-
 3. **Verify it's running:**
    - You should see: "🚀 Starting Path2Hire API server..."
    - Open http://localhost:5000/api/health in your browser

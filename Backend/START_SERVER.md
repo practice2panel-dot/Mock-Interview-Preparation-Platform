@@ -18,7 +18,6 @@ python start_server.py
 
 When server starts successfully, you should see:
 ```
-✅ Mock interview modules loaded successfully
 OpenAI API Key loaded successfully (length: 51)
 Users table initialized
 🚀 Starting Path2Hire API server...

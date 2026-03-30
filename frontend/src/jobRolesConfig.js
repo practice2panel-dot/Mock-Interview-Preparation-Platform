@@ -50,7 +50,7 @@ const JOB_ROLES_BASE = {
   }
 };
 
-/** For MockInterview, SkillPrep, InterviewPrep: { role: { skills, color } } */
+/** For Skill Prep components: { role: { skills, color } } */
 export const jobRoles = Object.fromEntries(
   Object.entries(JOB_ROLES_BASE).map(([key, v]) => [key, { skills: v.skills, color: v.color }])
 );
