@@ -9,7 +9,7 @@ export function useSpeech() {
 
   const recognitionRef = useRef(null);
   const [listening, setListening] = useState(false);
-  const [supported, setSupported] = useState({ stt: !!Recognition, tts: !!synthesis });
+  const supported = { stt: !!Recognition, tts: !!synthesis };
 
   // Speak text via TTS - returns a Promise that resolves when speech finishes
   const speak = useCallback((text) => {

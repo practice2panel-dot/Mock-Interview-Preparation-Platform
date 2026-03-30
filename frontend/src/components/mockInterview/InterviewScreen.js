@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useSpeech } from '../../hooks/useSpeech';
 
@@ -52,13 +52,28 @@ const InterviewScreen = ({ sessionData, onEndInterview, onRestart, apiBaseUrl })
     return '';
   }, [listening]);
 
+  const handleEndInterview = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await axios.post(`${apiBaseUrl}/api/mock-interview/end`, {
+        session_id: sessionData.session_id
+      });
+      onEndInterview(response.data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to end interview. Please try again.');
+      setLoading(false);
+    }
+  }, [apiBaseUrl, onEndInterview, sessionData.session_id]);
+
   useEffect(() => {
     if (sessionEndRef.current || isCompleted) return;
     if (elapsedMs >= sessionLimitMs) {
       sessionEndRef.current = true;
       handleEndInterview();
     }
-  }, [elapsedMs, sessionLimitMs, isCompleted]);
+  }, [elapsedMs, sessionLimitMs, isCompleted, handleEndInterview]);
 
   // Speak welcome (behavioral only) and every new question in voice mode
   useEffect(() => {
@@ -187,15 +202,6 @@ const InterviewScreen = ({ sessionData, onEndInterview, onRestart, apiBaseUrl })
     }
   };
 
-  const handleSubmitAnswer = (e) => {
-    e.preventDefault();
-    if (!answer.trim()) {
-      setError('Please enter your response');
-      return;
-    }
-    handleInteract(answer);
-  };
-
   const handleMicClick = () => {
     const now = Date.now();
     if (now < micCooldownUntil) return; // debounce rapid toggles / phantom taps
@@ -226,21 +232,6 @@ const InterviewScreen = ({ sessionData, onEndInterview, onRestart, apiBaseUrl })
         setTranscript(trimmed);
         transcriptRef.current = trimmed;
       });
-    }
-  };
-
-  const handleEndInterview = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await axios.post(`${apiBaseUrl}/api/mock-interview/end`, {
-        session_id: sessionData.session_id
-      });
-      onEndInterview(response.data);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to end interview. Please try again.');
-      setLoading(false);
     }
   };
 

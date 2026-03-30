@@ -15,7 +15,7 @@ const SummaryScreen = ({ summaryData, onRestart }) => {
     return (
       <ul style={{ paddingLeft: '20px', margin: '10px 0', lineHeight: 1.6 }}>
         {lines.map((line, index) => {
-          const cleanedLine = line.replace(/^[-\u2022\d\.\s]*/, '');
+          const cleanedLine = line.replace(/^[-\u2022\d.\s]*/, '');
           const html = cleanedLine
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
             .replace(/:\s*/g, ': ');
