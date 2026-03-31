@@ -273,6 +273,61 @@ const InterviewScreen = ({ sessionData, onEndInterview, onRestart, apiBaseUrl })
         <h3>{isFollowUp ? 'Follow-up Question' : `Question ${questionNumber} of ${sessionData.total_questions}`}</h3>
         <p>{currentQuestion || 'Loading question...'}</p>
       </div>
+
+      <div className="session-header">
+        <h1>AI Interview Session</h1>
+        <div className="timer">
+          <span role="img" aria-label="timer">⏲️</span>&nbsp; {formattedTime}
+          <span style={{ marginLeft: 10 }}>Remaining: {remainingTime}</span>
+        </div>
+      </div>
+
+      <div className="cards-grid">
+        <div className="agent-card">
+          <div className="agent-avatar">AR</div>
+          <div className="agent-label">AI Recruiter</div>
+        </div>
+        <div className="user-card" onPointerDown={handleMicClick} style={{ cursor: loading ? 'not-allowed' : 'pointer', position: 'relative' }}>
+          <div className={listening ? 'mic-icon mic-active' : 'mic-icon'}>
+            🎤
+          </div>
+          <div className="mic-hint">{listening ? 'Tap to stop' : 'Tap to speak'}</div>
+        </div>
+      </div>
+
+      {sessionData.welcome_message && sessionData.interview_type?.toLowerCase() === 'behavioral' && questionNumber === 1 && (
+        <div className="feedback-card" style={{ marginBottom: 16 }}>
+          <p className="feedback-text"><strong>Welcome:</strong> {sessionData.welcome_message}</p>
+        </div>
+      )}
+
+      {statusText && (
+        <div className="status-row">
+          <div className={loading ? 'spinner' : 'dot'} />
+          <span>{statusText}</span>
+        </div>
+      )}
+
+      {listening && transcript && (
+        <div className="transcript-preview">
+          <strong>Your response:</strong> {transcript}
+        </div>
+      )}
+
+      {feedback && (
+        <div className="feedback-card">
+          <p className="feedback-text"><strong>AI Feedback:</strong> {feedback}</p>
+        </div>
+      )}
+
+      {hint && (
+        <div className="hint-card">
+          <p className="hint-text"><strong>Hint:</strong> {hint}</p>
+        </div>
+      )}
+
+      {error && <div className="error-message">{error}</div>}
+
       {/* Controls */}
       <div className="mock-interview-actions-card">
         <div className="mock-interview-actions">
@@ -329,60 +384,6 @@ const InterviewScreen = ({ sessionData, onEndInterview, onRestart, apiBaseUrl })
           )}
         </div>
       </div>
-
-      <div className="session-header">
-        <h1>AI Interview Session</h1>
-        <div className="timer">
-          <span role="img" aria-label="timer">⏲️</span>&nbsp; {formattedTime}
-          <span style={{ marginLeft: 10 }}>Remaining: {remainingTime}</span>
-        </div>
-      </div>
-
-      <div className="cards-grid">
-        <div className="agent-card">
-          <div className="agent-avatar">AR</div>
-          <div className="agent-label">AI Recruiter</div>
-        </div>
-        <div className="user-card" onPointerDown={handleMicClick} style={{ cursor: loading ? 'not-allowed' : 'pointer', position: 'relative' }}>
-          <div className={listening ? 'mic-icon mic-active' : 'mic-icon'}>
-            🎤
-          </div>
-          <div className="mic-hint">{listening ? 'Tap to stop' : 'Tap to speak'}</div>
-        </div>
-      </div>
-
-      {sessionData.welcome_message && sessionData.interview_type?.toLowerCase() === 'behavioral' && questionNumber === 1 && (
-        <div className="feedback-card" style={{ marginBottom: 16 }}>
-          <p className="feedback-text"><strong>Welcome:</strong> {sessionData.welcome_message}</p>
-        </div>
-      )}
-
-      {statusText && (
-        <div className="status-row">
-          <div className={loading ? 'spinner' : 'dot'} />
-          <span>{statusText}</span>
-        </div>
-      )}
-
-      {listening && transcript && (
-        <div className="transcript-preview">
-          <strong>Your response:</strong> {transcript}
-        </div>
-      )}
-
-      {feedback && (
-        <div className="feedback-card">
-          <p className="feedback-text"><strong>AI Feedback:</strong> {feedback}</p>
-        </div>
-      )}
-
-      {hint && (
-        <div className="hint-card">
-          <p className="hint-text"><strong>Hint:</strong> {hint}</p>
-        </div>
-      )}
-
-      {error && <div className="error-message">{error}</div>}
 
       {isCompleted && (
         <div className="loading">
