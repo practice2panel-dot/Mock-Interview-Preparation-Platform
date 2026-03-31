@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Practice2Panel">
+  <defs>
+    <linearGradient id="p2p-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1d4ed8"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#p2p-grad)"/>
+  <g fill="#ffffff" font-family="Inter, Arial, sans-serif" font-weight="700">
+    <text x="50%" y="52%" font-size="180" text-anchor="middle" dominant-baseline="middle">P2</text>
+    <text x="50%" y="74%" font-size="120" text-anchor="middle" dominant-baseline="middle">P</text>
+  </g>
+</svg>
