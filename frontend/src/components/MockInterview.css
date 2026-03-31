@@ -6,6 +6,7 @@
   justify-content: center;
   padding: 24px;
   background: var(--bg-secondary);
+  font-size: 0.95rem;
 }
 
 .mock-interview-iqra__container {
@@ -23,21 +24,21 @@
   color: var(--text-primary);
   margin-bottom: 28px;
   text-align: center;
-  font-size: 2.2em;
+  font-size: 2em;
   font-weight: 700;
 }
 
 .mock-interview-iqra h2 {
   color: var(--text-primary);
   margin-bottom: 20px;
-  font-size: 1.7em;
+  font-size: 1.55em;
   font-weight: 600;
 }
 
 .mock-interview-iqra h3 {
   color: var(--text-primary);
   margin-bottom: 16px;
-  font-size: 1.4em;
+  font-size: 1.3em;
   font-weight: 600;
 }
 
@@ -60,7 +61,7 @@
   padding: 12px 14px;
   border: 1px solid var(--border-dark);
   border-radius: 10px;
-  font-size: 18px;
+  font-size: 16px;
   transition: border-color 0.2s, box-shadow 0.2s;
   background: var(--bg-tertiary);
 }
@@ -86,7 +87,7 @@
   border: none;
   padding: 14px;
   border-radius: 10px;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
@@ -237,7 +238,7 @@
 }
 
 .mock-interview-iqra .score-value {
-  font-size: 1.75em;
+  font-size: 1.6em;
   font-weight: 700;
   color: var(--accent-color);
 }
@@ -298,7 +299,7 @@
   background: var(--bg-primary);
   border-radius: 14px;
   border: 1px solid var(--border-color);
-  height: 260px;
+  height: 240px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -315,7 +316,7 @@
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 20px;
+  font-size: 18px;
   box-shadow: inset 0 0 0 2px #fff;
 }
 
@@ -343,13 +344,13 @@
 }
 
 .mock-interview-iqra .mic-icon {
-  width: 70px;
-  height: 70px;
+  width: 62px;
+  height: 62px;
   border-radius: 999px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 34px;
+  font-size: 30px;
   background: var(--bg-tertiary);
   color: var(--text-primary);
   transition: transform 0.15s, box-shadow 0.2s, background 0.2s;
@@ -414,6 +415,82 @@
   border: 1px solid #cfe3ef;
   border-radius: 10px;
   color: var(--primary-light);
-  font-size: 0.95em;
+  font-size: 0.92em;
   line-height: 1.5;
+}
+
+@media (max-width: 1200px) {
+  .mock-interview-iqra__container {
+    width: 92%;
+    padding: 28px;
+  }
+
+  .mock-interview-iqra .cards-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+}
+
+@media (max-width: 900px) {
+  .mock-interview-iqra {
+    padding: 18px;
+  }
+
+  .mock-interview-iqra__container {
+    padding: 24px;
+  }
+
+  .mock-interview-iqra .mock-interview-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mock-interview-iqra .mock-interview-actions__left,
+  .mock-interview-iqra .mock-interview-actions__right {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .mock-interview-iqra .mock-interview-actions button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 600px) {
+  .mock-interview-iqra {
+    padding: 14px;
+    font-size: 0.92rem;
+  }
+
+  .mock-interview-iqra__container {
+    padding: 18px;
+    border-radius: 14px;
+  }
+
+  .mock-interview-iqra h1 {
+    font-size: 1.6em;
+  }
+
+  .mock-interview-iqra h2 {
+    font-size: 1.35em;
+  }
+
+  .mock-interview-iqra h3 {
+    font-size: 1.15em;
+  }
+
+  .mock-interview-iqra .session-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .mock-interview-iqra .agent-card,
+  .mock-interview-iqra .user-card {
+    height: 200px;
+  }
+
+  .mock-interview-iqra .score-grid {
+    grid-template-columns: 1fr;
+  }
 }
