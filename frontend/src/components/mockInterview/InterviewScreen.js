@@ -230,7 +230,7 @@ const InterviewScreen = ({ sessionData, onEndInterview, onRestart, apiBaseUrl })
   };
 
   return (
-    <div>
+    <div className="mock-interview-screen">
       <div className="question-card" style={{ marginBottom: 16 }}>
         <h3>{isFollowUp ? 'Follow-up Question' : `Question ${questionNumber} of ${sessionData.total_questions}`}</h3>
         <p>{currentQuestion || 'Loading question...'}</p>
@@ -291,58 +291,60 @@ const InterviewScreen = ({ sessionData, onEndInterview, onRestart, apiBaseUrl })
       {error && <div className="error-message">{error}</div>}
 
       {/* Controls */}
-      <div className="mock-interview-actions">
-        <div className="mock-interview-actions__left">
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={onRestart}
-            disabled={loading}
-          >
-            Restart Interview
-          </button>
-        </div>
-
-        {!isCompleted && (
-          <div className="mock-interview-actions__right">
+      <div className="mock-interview-actions-card">
+        <div className="mock-interview-actions">
+          <div className="mock-interview-actions__left">
             <button
               type="button"
-              className="primary-button"
-              onClick={async () => {
-                try {
-                  setLoading(true);
-                  const res = await axios.post(`${apiBaseUrl}/api/mock-interview/next-question`, { session_id: sessionData.session_id });
-                  const nextQ = res.data.next_question;
-                  if (nextQ) {
-                    setIsFollowUp(false);
-                    if (res.data.question_number) setQuestionNumber(res.data.question_number);
-                    // Set current question last - this will trigger useEffect to speak it
-                    setCurrentQuestion(nextQ);
-                  } else if (res.data.completed) {
-                    setIsCompleted(true);
-                    const endResponse = await axios.post(`${apiBaseUrl}/api/mock-interview/end`, { session_id: sessionData.session_id });
-                    onEndInterview(endResponse.data);
-                  }
-                } catch (e) {
-                  setError(e.response?.data?.error || 'Failed to load next question');
-                } finally {
-                  setLoading(false);
-                }
-              }}
+              className="secondary-button"
+              onClick={onRestart}
               disabled={loading}
             >
-              Next Question
-            </button>
-            <button
-              type="button"
-              className="secondary-button danger-button"
-              onClick={handleEndInterview}
-              disabled={loading}
-            >
-              End Interview
+              Restart Interview
             </button>
           </div>
-        )}
+
+          {!isCompleted && (
+            <div className="mock-interview-actions__right">
+              <button
+                type="button"
+                className="primary-button"
+                onClick={async () => {
+                  try {
+                    setLoading(true);
+                    const res = await axios.post(`${apiBaseUrl}/api/mock-interview/next-question`, { session_id: sessionData.session_id });
+                    const nextQ = res.data.next_question;
+                    if (nextQ) {
+                      setIsFollowUp(false);
+                      if (res.data.question_number) setQuestionNumber(res.data.question_number);
+                      // Set current question last - this will trigger useEffect to speak it
+                      setCurrentQuestion(nextQ);
+                    } else if (res.data.completed) {
+                      setIsCompleted(true);
+                      const endResponse = await axios.post(`${apiBaseUrl}/api/mock-interview/end`, { session_id: sessionData.session_id });
+                      onEndInterview(endResponse.data);
+                    }
+                  } catch (e) {
+                    setError(e.response?.data?.error || 'Failed to load next question');
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+              >
+                Next Question
+              </button>
+              <button
+                type="button"
+                className="secondary-button danger-button"
+                onClick={handleEndInterview}
+                disabled={loading}
+              >
+                End Interview
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {isCompleted && (

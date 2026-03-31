@@ -13,7 +13,7 @@
   background: var(--bg-primary);
   border-radius: 16px;
   box-shadow: var(--shadow-xl);
-  padding: 32px;
+  padding: 28px;
   width: 80%;
   max-width: 1400px;
   margin: 0 auto;
@@ -124,7 +124,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 20px;
+  margin-top: 8px;
   flex-wrap: wrap;
 }
 
@@ -141,7 +141,9 @@
 
 .mock-interview-iqra .mock-interview-actions button {
   width: auto;
-  min-width: 160px;
+  min-width: 140px;
+  padding: 10px 14px;
+  font-size: 15px;
 }
 
 .mock-interview-iqra .danger-button {
@@ -163,17 +165,17 @@
 .mock-interview-iqra .question-card {
   background: var(--bg-tertiary);
   border-left: 4px solid var(--accent-color);
-  padding: 18px;
+  padding: 16px;
   border-radius: 10px;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
 .mock-interview-iqra .feedback-card {
   background: #e6f1f7;
   border-left: 4px solid var(--accent-color);
-  padding: 15px;
+  padding: 12px;
   border-radius: 10px;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
 .mock-interview-iqra .feedback-text {
@@ -184,9 +186,9 @@
 .mock-interview-iqra .hint-card {
   background: #fff7ed;
   border-left: 4px solid var(--warning-color);
-  padding: 15px;
+  padding: 12px;
   border-radius: 10px;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
 .mock-interview-iqra .hint-text {
@@ -291,7 +293,7 @@
 .mock-interview-iqra .cards-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  gap: 18px;
 }
 
 .mock-interview-iqra .agent-card,
@@ -299,7 +301,7 @@
   background: var(--bg-primary);
   border-radius: 14px;
   border: 1px solid var(--border-color);
-  height: 240px;
+  height: 220px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -376,11 +378,24 @@
   color: var(--text-secondary);
 }
 
+.mock-interview-iqra .mock-interview-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mock-interview-iqra .mock-interview-actions-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 12px;
+}
+
 .mock-interview-iqra .status-row {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  margin: 14px 0 4px 0;
+  margin: 10px 0 2px 0;
   padding: 8px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
@@ -422,7 +437,7 @@
 @media (max-width: 1200px) {
   .mock-interview-iqra__container {
     width: 92%;
-    padding: 28px;
+    padding: 24px;
   }
 
   .mock-interview-iqra .cards-grid {
@@ -438,6 +453,11 @@
 
   .mock-interview-iqra__container {
     padding: 24px;
+  }
+
+  .mock-interview-iqra .agent-card,
+  .mock-interview-iqra .user-card {
+    height: 200px;
   }
 
   .mock-interview-iqra .mock-interview-actions {
@@ -487,7 +507,7 @@
 
   .mock-interview-iqra .agent-card,
   .mock-interview-iqra .user-card {
-    height: 200px;
+    height: 180px;
   }
 
   .mock-interview-iqra .score-grid {
