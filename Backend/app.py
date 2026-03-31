@@ -1809,7 +1809,7 @@ def chatbot():
             "I'm specifically designed to help with interview preparation only. I can assist you with technical interview questions, "
             "behavioral interview tips, coding problems, interview strategies, and career preparation. How can I help you prepare for your interview?"
         )
-
+        
         # If has off-topic keywords but no interview context, redirect immediately
         # BUT skip redirect if this is an "Ask AI" question
         if has_off_topic and not has_interview_context and not is_ask_ai_question:
@@ -1841,7 +1841,7 @@ def chatbot():
             if explicit_type:
                 context = {**context, 'interviewType': explicit_type}
                 rubric_reply = build_rubric_response(
-                context.get('interviewType'),
+                    context.get('interviewType'),
                 include_improvement=is_improvement_question(raw_user_message)
                 )
             else:
