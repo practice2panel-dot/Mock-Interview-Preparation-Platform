@@ -168,6 +168,9 @@
   padding: 16px;
   border-radius: 10px;
   margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .mock-interview-iqra .feedback-card {
@@ -389,6 +392,7 @@
   border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 12px;
+  width: 100%;
 }
 
 .mock-interview-iqra .status-row {
