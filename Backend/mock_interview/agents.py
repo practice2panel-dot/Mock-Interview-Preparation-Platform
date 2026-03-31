@@ -1,7 +1,7 @@
 """
 CrewAI agents for the mock interview application.
 """
-from crewai import Agent, Task, Crew
+from crewai import Agent, Task, Crew, LLM
 from langchain_openai import ChatOpenAI
 from typing import List, Dict
 import random
@@ -22,11 +22,11 @@ if not OPENAI_API_KEY or OPENAI_API_KEY == "your-api-key-here":
 MODEL_NAME = os.getenv("MOCK_INTERVIEW_MODEL", "gpt-4o-mini")
 MAX_TOKENS = int(os.getenv("MOCK_INTERVIEW_MAX_TOKENS", "700"))
 
-# Initialize OpenAI LLM
-llm = ChatOpenAI(
+# Initialize CrewAI LLM (CrewAI expects its own LLM wrapper or a model string)
+llm = LLM(
     model=MODEL_NAME,
-    temperature=0.7,
     api_key=OPENAI_API_KEY,
+    temperature=0.7,
     max_tokens=MAX_TOKENS
 )
 
