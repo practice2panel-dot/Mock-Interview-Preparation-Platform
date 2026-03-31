@@ -622,6 +622,26 @@ def _iqra_handle_next_main_question(session, session_id):
     }), 200
 
 
+def _iqra_fallback_evaluation(question, answer):
+    """Return a minimal evaluation payload when the AI evaluator fails."""
+    return {
+        "short_feedback": "Thanks for your answer. Let's continue to the next part.",
+        "detailed_evaluation": {
+            "question": question,
+            "answer": answer,
+            "overall_feedback": "Evaluation was temporarily unavailable, so the interview continued without detailed scoring.",
+            "rubric_scores": {}
+        }
+    }
+
+
+def _iqra_fallback_hint(question, interview_type):
+    """Return a simple hint when AI hint generation is unavailable."""
+    if (interview_type or "").lower() == "behavioral":
+        return "Think of a real example and answer it with Situation, Task, Action, and Result."
+    return f"Break the question into smaller parts and explain the main concept behind: {question[:120]}"
+
+
 @app.route('/api/mock-interview/start', methods=['POST'])
 def iqra_start_interview():
     """Start a new mock interview session (Iqra flow)."""
@@ -697,6 +717,7 @@ def iqra_interact():
         data = request.get_json() or {}
         session_id = (data.get('session_id') or '').strip()
         user_input = (data.get('user_input') or '').strip()
+        logger.info("Iqra interact request received: session_id=%s input_preview=%s", session_id, user_input[:80])
 
         if not session_id:
             return jsonify({"error": "session_id is required"}), 400
@@ -706,6 +727,12 @@ def iqra_interact():
         session_obj = iqra_session_manager.get_session(session_id)
         if not session_obj:
             return jsonify({"error": "Invalid session_id"}), 404
+        logger.info(
+            "Iqra interact session found: current_question_index=%s follow_up_index=%s total_questions=%s",
+            session_obj.current_question_index,
+            session_obj.current_follow_up_index,
+            len(session_obj.questions),
+        )
 
         current_question = session_obj.last_question or ""
         if session_obj.current_question_index < len(session_obj.questions) and not current_question:
@@ -720,6 +747,7 @@ def iqra_interact():
         except Exception as e:
             logger.warning(f"Iqra intent detection error: {e}")
             intent = "normal_answer"
+        logger.info("Iqra interact resolved intent=%s", intent)
 
         if intent == 'repeat_question':
             return jsonify({
@@ -733,11 +761,19 @@ def iqra_interact():
             if not session_obj.last_question:
                 return jsonify({"error": "No question available for hint"}), 400
 
-            hint = IqraHintAgent.provide_hint(
-                session_obj.last_question,
-                session_obj.job_role,
-                session_obj.interview_type
-            )
+            try:
+                hint = IqraHintAgent.provide_hint(
+                    session_obj.last_question,
+                    session_obj.job_role,
+                    session_obj.interview_type
+                )
+            except Exception:
+                logger.exception(
+                    "Iqra hint generation failed: session_id=%s question=%s",
+                    session_id,
+                    session_obj.last_question[:120],
+                )
+                hint = _iqra_fallback_hint(session_obj.last_question, session_obj.interview_type)
             return jsonify({
                 "hint": hint,
                 "message": "Here's a hint to help guide your thinking:",
@@ -758,12 +794,20 @@ def iqra_interact():
 
             if is_followup:
                 current_followup = session_obj.follow_up_questions[session_obj.current_follow_up_index]
-                evaluation = IqraEvaluatorAgent.evaluate_answer(
-                    current_followup,
-                    user_input,
-                    session_obj.job_role,
-                    session_obj.interview_type
-                )
+                try:
+                    evaluation = IqraEvaluatorAgent.evaluate_answer(
+                        current_followup,
+                        user_input,
+                        session_obj.job_role,
+                        session_obj.interview_type
+                    )
+                except Exception:
+                    logger.exception(
+                        "Iqra follow-up evaluation failed: session_id=%s question=%s",
+                        session_id,
+                        current_followup[:120],
+                    )
+                    evaluation = _iqra_fallback_evaluation(current_followup, user_input)
 
                 session_obj.answers.append({
                     "question": current_followup,
@@ -798,12 +842,20 @@ def iqra_interact():
             if session_obj.current_question_index >= len(session_obj.questions):
                 return jsonify({"error": "No more questions available"}), 400
             current_question = session_obj.questions[session_obj.current_question_index]
-            evaluation = IqraEvaluatorAgent.evaluate_answer(
-                current_question,
-                user_input,
-                session_obj.job_role,
-                session_obj.interview_type
-            )
+            try:
+                evaluation = IqraEvaluatorAgent.evaluate_answer(
+                    current_question,
+                    user_input,
+                    session_obj.job_role,
+                    session_obj.interview_type
+                )
+            except Exception:
+                logger.exception(
+                    "Iqra main-question evaluation failed: session_id=%s question=%s",
+                    session_id,
+                    current_question[:120],
+                )
+                evaluation = _iqra_fallback_evaluation(current_question, user_input)
 
             session_obj.answers.append({
                 "question": current_question,
@@ -817,12 +869,20 @@ def iqra_interact():
                 "evaluation": evaluation
             })
 
-            follow_ups = IqraFollowUpAgent.generate_follow_ups(
-                current_question,
-                user_input,
-                session_obj.job_role,
-                session_obj.interview_type
-            )
+            try:
+                follow_ups = IqraFollowUpAgent.generate_follow_ups(
+                    current_question,
+                    user_input,
+                    session_obj.job_role,
+                    session_obj.interview_type
+                )
+            except Exception:
+                logger.exception(
+                    "Iqra follow-up generation failed: session_id=%s question=%s",
+                    session_id,
+                    current_question[:120],
+                )
+                follow_ups = []
 
             if follow_ups:
                 session_obj.follow_up_questions = [follow_ups[0]]
@@ -844,7 +904,11 @@ def iqra_interact():
             "session_id": session_id
         }), 400
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logger.exception("Iqra interact fatal error: session_id=%s", session_id if 'session_id' in locals() else "")
+        return jsonify({
+            "error": "Mock interview interaction failed. Please try again.",
+            "session_id": session_id if 'session_id' in locals() else ""
+        }), 500
 
 
 @app.route('/api/mock-interview/end', methods=['POST'])
