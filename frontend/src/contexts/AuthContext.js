@@ -2,7 +2,9 @@ import React, { createContext, useState, useEffect, useContext, useCallback } fr
 import { API_BASE_URL } from '../config';
 
 /** Abort auth check if the backend is unreachable (wrong URL, sleeping host, hung proxy). */
-const AUTH_CHECK_TIMEOUT_MS = 20000;
+const AUTH_CHECK_TIMEOUT_MS = 12000;
+const KEEPALIVE_INTERVAL_MS = 5 * 60 * 1000;
+const KEEPALIVE_TIMEOUT_MS = 8000;
 
 const AuthContext = createContext();
 
@@ -64,9 +66,38 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  // Check authentication status on mount
+  // Check authentication status on mount and keep backend warm (Render cold starts).
   useEffect(() => {
+    let keepaliveId;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), KEEPALIVE_TIMEOUT_MS);
+
+    const pingBackend = async () => {
+      try {
+        await fetch(`${API_BASE_URL}/api/health`, { signal: controller.signal });
+      } catch {
+        // Ignore keepalive errors; auth check will handle real connectivity issues.
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
+
+    pingBackend();
     checkAuth();
+
+    keepaliveId = setInterval(() => {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), KEEPALIVE_TIMEOUT_MS);
+      fetch(`${API_BASE_URL}/api/health`, { signal: ctrl.signal })
+        .catch(() => {})
+        .finally(() => clearTimeout(tid));
+    }, KEEPALIVE_INTERVAL_MS);
+
+    return () => {
+      clearInterval(keepaliveId);
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, [checkAuth]);
 
   const login = async (email, password, rememberMe = false) => {
