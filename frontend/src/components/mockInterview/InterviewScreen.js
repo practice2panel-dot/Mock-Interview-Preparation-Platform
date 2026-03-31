@@ -24,37 +24,13 @@ const InterviewScreen = ({ sessionData, onEndInterview, onRestart, apiBaseUrl })
   const [elapsedMs, setElapsedMs] = useState(0);
   const sessionEndRef = useRef(false);
   const sessionLimitMs = 10 * 60 * 1000;
-  const storageKey = `mockInterview.state.${sessionData.session_id}`;
   const startTimeRef = useRef(Date.now());
   useEffect(() => {
-    const startKey = `${storageKey}.start`;
-    const savedStart = localStorage.getItem(startKey);
-    if (savedStart && !Number.isNaN(Number(savedStart))) {
-      startTimeRef.current = Number(savedStart);
-    } else {
-      startTimeRef.current = Date.now();
-      localStorage.setItem(startKey, String(startTimeRef.current));
-    }
+    startTimeRef.current = Date.now();
     setElapsedMs(Date.now() - startTimeRef.current);
     const id = setInterval(() => setElapsedMs(Date.now() - startTimeRef.current), 1000);
     return () => clearInterval(id);
-  }, [storageKey]);
-
-  useEffect(() => {
-    const savedState = localStorage.getItem(storageKey);
-    if (!savedState) return;
-    try {
-      const parsed = JSON.parse(savedState);
-      if (parsed.currentQuestion) setCurrentQuestion(parsed.currentQuestion);
-      if (parsed.feedback) setFeedback(parsed.feedback);
-      if (parsed.hint) setHint(parsed.hint);
-      if (parsed.questionNumber) setQuestionNumber(parsed.questionNumber);
-      if (typeof parsed.isFollowUp === 'boolean') setIsFollowUp(parsed.isFollowUp);
-      if (typeof parsed.isCompleted === 'boolean') setIsCompleted(parsed.isCompleted);
-    } catch (e) {
-      // ignore invalid cached state
-    }
-  }, [storageKey]);
+  }, []);
 
   const formattedTime = useMemo(() => {
     const totalSeconds = Math.floor(elapsedMs / 1000);
@@ -129,17 +105,6 @@ const InterviewScreen = ({ sessionData, onEndInterview, onRestart, apiBaseUrl })
     transcriptRef.current = '';
   }, [currentQuestion]);
 
-  useEffect(() => {
-    const state = {
-      currentQuestion,
-      feedback,
-      hint,
-      questionNumber,
-      isFollowUp,
-      isCompleted
-    };
-    localStorage.setItem(storageKey, JSON.stringify(state));
-  }, [storageKey, currentQuestion, feedback, hint, questionNumber, isFollowUp, isCompleted]);
 
   const handleInteract = async (userInput) => {
     setLoading(true);
