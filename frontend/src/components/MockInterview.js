@@ -49,7 +49,7 @@ const MockInterview = () => {
   useEffect(() => {
     if (sessionData) {
       localStorage.setItem('mockInterview.sessionData', JSON.stringify(sessionData));
-    } else {
+            } else {
       localStorage.removeItem('mockInterview.sessionData');
     }
   }, [sessionData]);
@@ -62,7 +62,7 @@ const MockInterview = () => {
     }
   }, [summaryData]);
 
-  return (
+    return (
     <div className="mock-interview-iqra">
       <div className="mock-interview-iqra__container">
         {currentScreen === 'form' && (
