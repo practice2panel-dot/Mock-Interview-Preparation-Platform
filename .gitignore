@@ -8,6 +8,7 @@ node_modules/
 
 # Flask session data (local only)
 flask_session/
+Backend/flask_session/
 
 # Python
 __pycache__/
@@ -30,6 +31,7 @@ Rubrics/
 !package-lock.json
 !tsconfig.json
 !tsconfig.*.json
+!manifest.json
 
 # Build outputs
 frontend/build/
