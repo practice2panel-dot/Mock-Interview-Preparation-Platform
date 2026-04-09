@@ -4,7 +4,6 @@ import { useSpeech } from '../../hooks/useSpeech';
 
 const InterviewScreen = ({ sessionData, onEndInterview, onRestart, apiBaseUrl }) => {
   const [currentQuestion, setCurrentQuestion] = useState(sessionData.first_question || '');
-  const [answer, setAnswer] = useState('');
   const [feedback, setFeedback] = useState('');
   const [hint, setHint] = useState('');
   const [loading, setLoading] = useState(false);
@@ -125,7 +124,6 @@ const InterviewScreen = ({ sessionData, onEndInterview, onRestart, apiBaseUrl })
       if (intent === 'repeat_question') {
         setCurrentQuestion(response.data.question);
         setFeedback(response.data.message);
-        setAnswer(''); // Clear input
       } else if (intent === 'hint_request') {
         const h = response.data.hint;
         setHint(h);
@@ -134,13 +132,11 @@ const InterviewScreen = ({ sessionData, onEndInterview, onRestart, apiBaseUrl })
         if (voiceMode && h) {
           await speak(`Here's a hint: ${h}`);
         }
-        setAnswer(''); // Clear input
       } else if (intent === 'need_time') {
         setFeedback(response.data.message);
         if (voiceMode && response.data.message) {
           await speak(response.data.message);
         }
-        setAnswer(''); // Clear input
         // Optionally show a pause indicator
         if (response.data.pause_seconds) {
           setTimeout(() => {
@@ -155,7 +151,6 @@ const InterviewScreen = ({ sessionData, onEndInterview, onRestart, apiBaseUrl })
         // Handle answer submission
         const fb = response.data.feedback || response.data.message || 'Thank you for your answer.';
         setFeedback(fb);
-        setAnswer(''); // Clear answer field
 
         // Speak feedback first, then wait for it to finish before speaking next question
         if (voiceMode && fb) {
@@ -196,7 +191,6 @@ const InterviewScreen = ({ sessionData, onEndInterview, onRestart, apiBaseUrl })
         const msg = response.data.message || response.data.feedback || 'Processing your response...';
         setFeedback(msg);
         if (voiceMode) await speak(msg);
-        setAnswer('');
       }
     } catch (err) {
       setError(err.response?.data?.error || 'An error occurred. Please try again.');
